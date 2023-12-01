@@ -1,0 +1,11 @@
+
+
+# Python
+*.pyc
+__pycache__
+
+
+# Compiled languages
+*.o
+*.smod
+*.mod
