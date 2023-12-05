@@ -9,6 +9,10 @@ class Mesh(ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)  # forwards all unused arguments
 
+    @classmethod
+    def is_this_your_mesh(self, *args, **kwargs):
+        return False
+
     @property
     def mesh_type(self):
         return self.__class__.__name__

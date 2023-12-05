@@ -1,5 +1,6 @@
 
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional, List
 
 from ._exceptions import *
 
@@ -22,9 +23,18 @@ class Temporary:
     #     if mesh_name not in cls.__meshes:
     #         raise InvalidMeshError(mesh_name)
     #     return cls.__meshes[mesh_name](**kwargs)
+
     @classmethod
-    def load(cls):
-        pass
+    def load_mesh(cls, filename: str | Path, fields: Optional[List[str]]=None):
+        for mesh in cls.__meshes.values():
+            if mesh.is_this_your_mesh(filename):
+                m = mesh(filename)
+                m.load(fields)
+                return m
+
+    def load(self, filename: str | Path):
+        self.mesh = self.load_mesh(filename)
+
     #--------------------------
     
 

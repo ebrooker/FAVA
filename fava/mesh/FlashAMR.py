@@ -63,7 +63,13 @@ class FlashAMR(Structured):
         super().__init__(*args, **kwargs)
         self.filename = filename
 
-        
+    
+    @classmethod
+    def is_this_your_mesh(self, filename: str | Path, *args, **kwargs):
+        fn_types = ("hdf5_chk_", "hdf5_plt_cnt_", "hdf5_part_")
+        return any(t in filename for t in fn_types)
+
+
 
     @property
     def filename(self):
