@@ -52,6 +52,7 @@ class FlashAMR(Structured):
     _filename  = None
     _metadata_loaded = False
     use_particles = False
+    is_part_file = False
     nxb = 1
     nyb = 0
     nzb = 0
@@ -82,6 +83,7 @@ class FlashAMR(Structured):
             print("[WARNING] A filename has not been set, yet!")
         elif filename != self._filename:
             self._metadata_loaded = False
+            self.is_part_file = "hdf5_part_" in filename
             self._filename = Path(filename)
             self._load_metadata()
 
@@ -132,7 +134,7 @@ class FlashAMR(Structured):
 ||_______________________________________________
 ||_______________________________________________
 """
-        print(flash_docstring)
+        # print(flash_docstring)
         self._metadata_loaded = True
 
     def _read_particles(self):
@@ -208,7 +210,7 @@ class FlashAMR(Structured):
         self.nblockz = self._intrunpars["nblockz"]
         self.nBlksVec = [self.nblockx, self.nblocky, self.nblockz]
 
-        if not self.use_particles:
+        if not self.is_part_file:
             self.blk_size = self._open_file["block size"][()]
             self.blk_bounds = self._open_file["bounding box"][()]
             self.blk_node = self._open_file["node type"][()]
@@ -247,12 +249,19 @@ class FlashAMR(Structured):
     def load(self, fields: Optional[List[str]]=None):
         
         fields_ = fields if fields is not None else self._flash_vars
-        self.data = {}
+        
+        if not self.is_part_file:
+            self.data = {}
+
+        if self.use_particles:
+            self.part_data = {}
+
         with h5py.File(self._filename, "r") as h5file:
             if self.use_particles:
                 for k,field in enumerate(self._part_vars):
-                    self.data[field] = h5file["tracer particles"][...,k]
-            else:
+                    self.part_data[field] = h5file["tracer particles"][...,k]
+
+            if not self.is_part_file:
                 for field in fields_:
                     if field not in self._flash_vars:
                         print(f"[WARNING] {field} field variable does not exist in dataset!")
@@ -424,13 +433,13 @@ class FlashAMR(Structured):
     def get_particle_coords(self):
 
         coords = np.empty((self.nParticles,self.ndim))
-        coords[:,0] = self.data["posx"][:]
+        coords[:,0] = self.part_data["posx"][:]
 
         if self.ndim == 2:
-            coords[:,1] = self.data["posy"][:]
+            coords[:,1] = self.part_data["posy"][:]
 
         elif self.ndim == 3:
-            coords[:,2] = self.data["posz"][:]
+            coords[:,2] = self.part_data["posz"][:]
         
         return coords
 
@@ -447,4 +456,6 @@ class FlashAMR(Structured):
         """
         pass
 
-
+    def contiguous_volume(self, field, starting_point, cells):
+        ...
+        

@@ -11,7 +11,7 @@ from fava.util import timer
 
 @timer
 def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[str|Path], sample_points: np.ndarray, poi_idx: int, *args, **kwargs):
-    """Spatio-temporal cross correlation method detailed in Naka et al. 2015
+    """Spatio-temporal cross correlation method detailed in Naka et al. 2015 Space-time pressure-velocity correlations boundary layer turbulence
 
     Computes the cross correlation values of a set of spatial points against a single point of interest across time.
 
@@ -31,10 +31,10 @@ def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[s
         filenames (List[str|Path]): List of filenames to draw data from, must be in ascending time order.
 
         sample_points (np.ndarray): Number array of the sample points used for cross correlation. In the case of the
-                                    Lagrangian tracking mode, we want sample_points to be a mask array over particle
-                                    IDs. This is modeled after the FLASH particle data structure.
+                                    Lagrangian tracking mode, we want sample_points to be an array particle tag IDs.
+                                    This is modeled after the FLASH particle data structure.
 
-        poi_idx (int): In Lagrangian tracking mode, this is an integer ID of the particle that tracks the point of
+        poi_idx (int): In Lagrangian tracking mode, this is an integer tag ID of the particle that tracks the point of
                         interest.
 
         *args: Usual list of input values
@@ -55,13 +55,16 @@ def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[s
 
     # Get midpoint of files for time-centering. We want to know how a point evolves
     imid = floor(nfiles/2)
+    # imid = 0
 
 
     # If we are tracking lagrangian evolved points, make that check now. E.g. are we using something like FLASH particles or not
     lagrangian_tracking = kwargs.get("lagrangian_tracking")
     if lagrangian_tracking:
 
-
+        tagvar = kwargs.get("tag_field")
+        if tagvar is None:
+            raise Exception("Lagrangian Particle tracking has been selected but no name has been given for accessing Particle ID tags in data structure")
         # Raw cross correlation array
         Rts = np.zeros(sample_points.size)
 
@@ -72,24 +75,28 @@ def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[s
         temp_data = np.zeros(nfiles, dtype=float)
 
         # Load the midpoint file and get the temporal data measure at this time to start correlating
-        mesh = fava.load_mesh(filename=filenames[imid], fields=[tvar])
-        temp_data[imid] = mesh.data[tvar][poi_idx]
+        mesh = fava.load_mesh(filename=filenames[imid], fields=[tvar, tagvar])
+        temp_data[imid] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
 
         # Iterate in reverse over the first half of files; this works well enough if using lagrangian-tracked
         # data points, e.g. particles data structure in FLASH
         for i,fn in enumerate(reversed(filenames[:imid])):
             k = imid - i - 1
             mesh = fava.load_mesh(filename=fn, fields=fields)
-            temp_data[k] = mesh.data[tvar][poi_idx]
-            samp_data[k,:] = mesh.data[svar][sample_points]
+            print(mesh.time)
+            temp_data[k] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
+            tags = np.squeeze(np.array([np.where(mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
+            samp_data[k,:] = mesh.part_data[svar][tags]
             Rts[:] += temp_data[k+1] * samp_data[k,:]
 
         # Repeat process but forward through second half of data files
         for i,fn in enumerate(filenames[imid+1:]):
             k = imid + i + 1
             mesh = fava.load_mesh(filename=fn, fields=fields)
-            temp_data[k] = mesh.data[tvar][poi_idx]
-            samp_data[k,:] = mesh.data[svar][sample_points]
+            print(mesh.time)
+            temp_data[k] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
+            tags = np.squeeze(np.array([np.where(mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
+            samp_data[k,:] = mesh.part_data[svar][tags]
             Rts[:] += temp_data[k] * samp_data[k-1,:]
 
     # For eulerian tracked data
