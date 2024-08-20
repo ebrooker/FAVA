@@ -1,5 +1,3 @@
-
-
 import time
 
 
@@ -10,4 +8,5 @@ def timer(func):
         tend = time.perf_counter()
         print(f"Timing: {func.__name__} --> {tend-tbeg:2.4f}")
         return result
+
     return decorator

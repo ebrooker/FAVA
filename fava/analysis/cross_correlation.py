@@ -3,14 +3,13 @@ import numpy as np
 
 from math import floor
 from pathlib import Path
-from typing import List
+from typing import List, Sequence
 
-import fava
-
+from fava.model import Model
 from fava.util import timer
 
-@timer
-def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[str|Path], sample_points: np.ndarray, poi_idx: int, *args, **kwargs):
+@Model.register_analysis(use_timer=True)
+def cross_correlation(self, spatial_field: str, temporal_field: str, sample_points: np.ndarray, poi_idx: int, *args, **kwargs):
     """Spatio-temporal cross correlation method detailed in Naka et al. 2015 Space-time pressure-velocity correlations boundary layer turbulence
 
     Computes the cross correlation values of a set of spatial points against a single point of interest across time.
@@ -28,8 +27,6 @@ def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[s
 
         temporal_field (str): String value giving the field measurement name for the point of interest across time
 
-        filenames (List[str|Path]): List of filenames to draw data from, must be in ascending time order.
-
         sample_points (np.ndarray): Number array of the sample points used for cross correlation. In the case of the
                                     Lagrangian tracking mode, we want sample_points to be an array particle tag IDs.
                                     This is modeled after the FLASH particle data structure.
@@ -46,78 +43,89 @@ def cross_correlation(spatial_field: str, temporal_field: str, filenames: List[s
                                               the cross correlation process. This represents the normalized cross
                                               correlation coefficients of each sample point against the point of interest.
     """
+    
+    tvar: str = temporal_field
+    svar: str = spatial_field
+    fields: List[str] = [svar, tvar]
 
-    tvar = temporal_field
-    svar = spatial_field
-    fields = [svar, tvar]
+    nfiles: int = len(self.prt_files["by index"])
+    npts: int = sample_points.size
 
-    nfiles = len(filenames)
+    ibeg: int = 0
+    ibeg = kwargs.get("ibeg", ibeg)
 
-    # Get midpoint of files for time-centering. We want to know how a point evolves
-    imid = floor(nfiles/2)
-    # imid = 0
+    iend: int = nfiles
+    iend = kwargs.get("iend", iend)
 
+    imid: int = floor((iend-ibeg)/2)
 
-    # If we are tracking lagrangian evolved points, make that check now. E.g. are we using something like FLASH particles or not
     lagrangian_tracking = kwargs.get("lagrangian_tracking")
-    if lagrangian_tracking:
-
+    if lagrangian_tracking is not None:
+        
         tagvar = kwargs.get("tag_field")
         if tagvar is None:
-            raise Exception("Lagrangian Particle tracking has been selected but no name has been given for accessing Particle ID tags in data structure")
-        # Raw cross correlation array
-        Rts = np.zeros(sample_points.size)
+            raise Exception("Lagrangian Particle tracking has been selected but no name has been given for accessing Particle ID tags in data strucuture")
 
-        # Array of sample data points measurements
-        samp_data = np.zeros((nfiles, sample_points.size), dtype=float)
+        # Initialize data arrays
+        samp_data = np.zeros((nfiles, npts), dtype=float)
+        temp_data = np.zeros((nfiles, 1), dtype=float)
 
-        # Array of temporal data measurements
-        temp_data = np.zeros(nfiles, dtype=float)
+        #Load the midpoint file and get the temporal data measure at this time to start correlating
+        self.load(file_index=imid, fields=[*fields, tagvar], *args, **kwargs)
 
-        # Load the midpoint file and get the temporal data measure at this time to start correlating
-        mesh = fava.load_mesh(filename=filenames[imid], fields=[tvar, tagvar])
-        temp_data[imid] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
+        # Get the temporal measure tag(s) and midpoint temporal data
+        temp_tags = np.where(self.particles.data[tagvar] == poi_idx)[0]
+        temp_data[imid] = self.particles.data[tvar][temp_tags]
 
-        # Iterate in reverse over the first half of files; this works well enough if using lagrangian-tracked
-        # data points, e.g. particles data structure in FLASH
-        for i,fn in enumerate(reversed(filenames[:imid])):
-            k = imid - i - 1
-            mesh = fava.load_mesh(filename=fn, fields=fields)
-            print(mesh.time)
-            temp_data[k] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
-            tags = np.squeeze(np.array([np.where(mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
-            samp_data[k,:] = mesh.part_data[svar][tags]
-            Rts[:] += temp_data[k+1] * samp_data[k,:]
+        # Get the spatial measure tag(s) and midpoint spatial data
+        samp_tags = np.squeeze(np.array([np.where(self.particles.data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
+        samp_data[imid,:] = self.particles.data[svar][samp_tags]
 
-        # Repeat process but forward through second half of data files
-        for i,fn in enumerate(filenames[imid+1:]):
-            k = imid + i + 1
-            mesh = fava.load_mesh(filename=fn, fields=fields)
-            print(mesh.time)
-            temp_data[k] = mesh.part_data[tvar][np.where(mesh.part_data[tagvar] == poi_idx)[0]]
-            tags = np.squeeze(np.array([np.where(mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
-            samp_data[k,:] = mesh.part_data[svar][tags]
-            Rts[:] += temp_data[k] * samp_data[k-1,:]
+        # Obtain the spatial and temporal data for all remaining time slices
+        for i in range(nfiles):
+            print(f"{i=}")
+            if i == imid:
+                continue
+            self.load(file_index=i, fields=fields, *args, **kwargs)
+            temp_data[i] = self.particles.data[tvar][temp_tags]
+            samp_data[i,:] = self.particles.data[svar][samp_tags]
 
-    # For eulerian tracked data
+        # # Reverse iterate over first half of files; this works well enough if using langrangian-tracked
+        # # data points, e.e.g. particles data structure in FLASH
+        # for i in reversed(range(imid)):
+        #     self.load(file_index=i, fields=fields, *args, **kwargs)
+        #     print(f"{mesh.time=:.4f}")
+        #     temp_data[i] = self.mesh.part_data[tvar][np.where(self.mesh.part_data[tagvar] == poi_idx)[0]]
+        #     tags = np.squeeze(np.array([np.where(self.mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
+        #     samp_data[i,:] = self.mesh.part_data[svar][tags]
+        #     Rts[:] += temp_data[i+1] * samp_data[i,:]
+
+        # for i in range(imid,nfiles):
+        #     self.load(file_index=i, fields=fields, *args, **kwargs)
+        #     print(f"{mesh.time=:.4f}")
+        #     temp_data[i] = self.mesh.part_data[tvar][np.where(self.mesh.part_data[tagvar] == poi_idx)[0]]
+        #     tags = np.squeeze(np.array([np.where(self.mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
+        #     samp_data[i,:] = self.mesh.part_data[svar][tags]
+        #     Rts[:] += temp_data[i] * samp_data[i-1,:]
+
     else:
         ...
 
-    # Need mean for spatial and temporal measures
-    tmean = temp_data[1:].mean()
+    # Compute mean for spatial and temporal measures
     smean = samp_data[:-1,...].mean(axis=0)
+    tmean = temp_data[1:].mean()
 
-    # Same with standard deviation
-    tstd = temp_data[1:].std()
+    # Compute stddev for spatial and temporal measures
     sstd = samp_data[:-1,...].std(axis=0)
+    tstd = temp_data[1:].std()
 
-    # Normalize raw cross correlations over number of time slices
-    Rts /= float(nfiles-1)
+    # Compute cross correlations normalized over number of time slices
+    Rts = np.sum(temp_data[1:] * samp_data[:-1,:], axis=0) / float(nfiles-1)
 
-    # Subtract out the cross correlation mean (I think this is the cross covariance matrix)
-    Kts = Rts - tmean*smean
+    # Subtract out the cross correlation mean (I think this forms the cross covariance matrix)
+    Kts = Rts - smean*tmean
 
-    # Get the normalized cross correlation matrix.
-    rho = Kts / (tstd*sstd)
+    # Compute the statistically normalized cross correlation matrix
+    rho = Kts / (sstd*tstd)
 
     return rho

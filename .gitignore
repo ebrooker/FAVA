@@ -1,9 +1,17 @@
+# OS related
+.DS_Store
 
+# IDE
+.vscode
+.vs
+*.code-workspace
 
 # Python
 *.pyc
 __pycache__
 
+# pyenv
+.python-version
 
 # Compiled languages
 *.o
