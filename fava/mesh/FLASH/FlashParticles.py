@@ -34,11 +34,9 @@ class FlashParticles(Unstructured):
     _fields = {}
     _metadata_loaded = False
 
-
     def __init__(self, filename: Optional[str | Path] = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.filename = filename
-
 
     @property
     def filename(self):
@@ -52,7 +50,9 @@ class FlashParticles(Unstructured):
             print("[WARNING] A filename has not been set, yet!")
 
         elif not (fn_.match("*hdf5_part_*") or fn_.match("*hdf5_chk_*")):
-            raise Exception(f"[ERROR] FLASH datafiles with particles typically have 'hdf5_chk_' or 'hdf5_part_' in the filename: {fn_}!")
+            raise Exception(
+                f"[ERROR] FLASH datafiles with particles typically have 'hdf5_chk_' or 'hdf5_part_' in the filename: {fn_}!"
+            )
 
         elif fn_ != self._filename:
             self._metadata_loaded = False
@@ -68,36 +68,25 @@ class FlashParticles(Unstructured):
 
         self._metadata_loaded = True
 
-
     def _set_dimensionality(self):
         self.ndim = self._intscalars["dimensionality"]
 
     def _read_scalars(self):
-        self._intscalars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["integer scalars"][()]
-        }
-        self._realscalars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["real scalars"][()]
-        }
+        self._intscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer scalars"][()]}
+        self._realscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real scalars"][()]}
         # self._stringscalars = {
         #     tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip()
         #     for tpl in self._open_file["string scalars"][()]
         # }
 
-
     def _read_particles(self):
         self.localnp = self._open_file["localnp"][()]
         self.nParticles = self._intscalars["globalnumparticles"]
 
-        self._fields = [
-            v.decode("UTF-8").strip()
-            for v in np.squeeze(self._open_file["particle names"][()])
-        ]
+        self._fields = [v.decode("UTF-8").strip() for v in np.squeeze(self._open_file["particle names"][()])]
 
     def _load_particles(self, *args, **kwargs):
-        """  """
+        """ """
 
         # Get the KWARGS
         fields_ = kwargs.get("fields", self._fields)
@@ -111,9 +100,7 @@ class FlashParticles(Unstructured):
             _data = h5file["tracer particles"][()]
             for k, field in enumerate(fields_):
                 if field not in self._fields:
-                    print(
-                        f"[WARNING] {field} particle field variable does not exist in dataset"
-                    )
+                    print(f"[WARNING] {field} particle field variable does not exist in dataset")
                     continue
                 self.data[field] = _data[..., k]
 
@@ -143,4 +130,3 @@ class FlashParticles(Unstructured):
             coords[:, 2] = self.data["posz"][:]
 
         return coords
-

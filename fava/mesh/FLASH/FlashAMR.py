@@ -15,6 +15,7 @@ from fava.model import Model
 
 FLOAT = np.float64
 
+
 def super_gaussian(x, amp, x0, sigma):
     return amp * np.exp(-2 * ((x - x0) / sigma) ** 10)
 
@@ -54,6 +55,7 @@ _field_mapping = {
     "vort": "vorticity",
 }
 
+
 @Model.register_mesh()
 class FlashAMR(Structured):
 
@@ -71,7 +73,7 @@ class FlashAMR(Structured):
         self.filename = filename
 
     def __repr__(self) -> str:
-        fstr = "\n".join(f"\t{val} --> {key}" for key,val in self._fields.items() if key != "NotMapped")
+        fstr = "\n".join(f"\t{val} --> {key}" for key, val in self._fields.items() if key != "NotMapped")
         fstr += f"\n\tNotMapped --> {self._fields.get('NotMapped')}"
         s = [
             "<FlashAMR>",
@@ -143,34 +145,18 @@ class FlashAMR(Structured):
         self._metadata_loaded = True
 
     def _read_scalars(self):
-        self._intscalars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["integer scalars"][()]
-        }
-        self._realscalars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["real scalars"][()]
-        }
+        self._intscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer scalars"][()]}
+        self._realscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real scalars"][()]}
         self._stringscalars = {
-            tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip()
-            for tpl in self._open_file["string scalars"][()]
+            tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip() for tpl in self._open_file["string scalars"][()]
         }
 
     def _read_runtime_parameters(self):
-        self._intrunpars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["integer runtime parameters"][()]
-        }
-        self._realrunpars = {
-            tpl[0].strip().decode("UTF-8"): tpl[1]
-            for tpl in self._open_file["real runtime parameters"][()]
-        }
+        self._intrunpars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer runtime parameters"][()]}
+        self._realrunpars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real runtime parameters"][()]}
 
     def _read_Nvars_list(self):
-        self._flash_fields = [
-            v.decode("UTF-8").strip()
-            for v in np.squeeze(self._open_file["unknown names"][()])
-        ]
+        self._flash_fields = [v.decode("UTF-8").strip() for v in np.squeeze(self._open_file["unknown names"][()])]
         self._nvars = len(self._flash_fields)
 
     def _set_fields(self):
@@ -262,7 +248,6 @@ class FlashAMR(Structured):
         self.dtold = self._realscalars["dtold"]
         self.time = self._realscalars["time"]
 
-
     def _load_mesh(self, fields: Optional[List[str]] = None):
 
         fields_ = fields if fields is not None else self._flash_fields
@@ -272,9 +257,7 @@ class FlashAMR(Structured):
             if field not in self._flash_fields:
                 print(f"[WARNING] {field} field variable does not exist in dataset!")
                 continue
-            self.data[field] = np.swapaxes(
-                self._h5file[f"{field:4}"][()], axis1=1, axis2=3
-            ).astype(FLOAT)
+            self.data[field] = np.swapaxes(self._h5file[f"{field:4}"][()], axis1=1, axis2=3).astype(FLOAT)
 
             # ToDo: Need to setup children and neighbor GID arrays
 
@@ -355,11 +338,7 @@ class FlashAMR(Structured):
         match BLOCK_TYPE[blkType]:
 
             case BLOCK_TYPE.LEAF:
-                blkList = [
-                    i
-                    for i in range(self.nBlocks)
-                    if BLOCK_TYPE(self.blk_node[i]) == BLOCK_TYPE.LEAF
-                ]
+                blkList = [i for i in range(self.nBlocks) if BLOCK_TYPE(self.blk_node[i]) == BLOCK_TYPE.LEAF]
 
             case BLOCK_TYPE.ALL:
                 blkList = [i for i in range(self.nBlocks)]
@@ -379,9 +358,7 @@ class FlashAMR(Structured):
     def get_deltas_from_refine_level(self, refine_level: int) -> List[float]:
         _res = []
         for i in range(self.ndim):
-            _res.append(
-                self.get_delta_from_refine_level(axis=i, refine_level=refine_level)
-            )
+            _res.append(self.get_delta_from_refine_level(axis=i, refine_level=refine_level))
         return _res
 
     def get_delta_from_refine_level(self, axis: int, refine_level: int) -> float:
@@ -396,16 +373,12 @@ class FlashAMR(Structured):
         return _res
 
     def get_block_delta(self, axis: int, blockID: int) -> float:
-        return (
-            self.blk_bounds[blockID, axis, 1] - self.blk_bounds[blockID, axis, 0]
-        ) / (self.nCellsVec[axis])
+        return (self.blk_bounds[blockID, axis, 1] - self.blk_bounds[blockID, axis, 0]) / (self.nCellsVec[axis])
 
     def get_block_bounds(self, axis: int, blockID: int):
         return self.blk_bounds[blockID, axis, :]
 
-    def get_cell_coords(
-        self, axis: int, blockID: int, edge: str = "CENTER", guardcell: bool = False
-    ):
+    def get_cell_coords(self, axis: int, blockID: int, edge: str = "CENTER", guardcell: bool = False):
 
         n = self.nCellsVec[axis]
         lb, ub = self.blk_bounds[blockID, axis, :]
@@ -428,28 +401,18 @@ class FlashAMR(Structured):
 
         return np.linspace(lb, ub, m)
 
-    def get_block_grid_coords(
-        self, blockID: int, edge: str = "CENTER", guardcell: bool = False
-    ):
+    def get_block_grid_coords(self, blockID: int, edge: str = "CENTER", guardcell: bool = False):
 
-        x = self.get_cell_coords(
-            axis=0, blockID=blockID, edge=edge, guardcell=guardcell
-        )
+        x = self.get_cell_coords(axis=0, blockID=blockID, edge=edge, guardcell=guardcell)
 
         if self.ndim == 2:
-            y = self.get_cell_coords(
-                axis=1, blockID=blockID, edge=edge, guardcell=guardcell
-            )
+            y = self.get_cell_coords(axis=1, blockID=blockID, edge=edge, guardcell=guardcell)
             x, y = np.meshgrid(x, y, indexing="ij")
             x = np.array((x.flatten(), y.flatten()))
 
         elif self.ndim == 3:
-            y = self.get_cell_coords(
-                axis=1, blockID=blockID, edge=edge, guardcell=guardcell
-            )
-            z = self.get_cell_coords(
-                axis=2, blockID=blockID, edge=edge, guardcell=guardcell
-            )
+            y = self.get_cell_coords(axis=1, blockID=blockID, edge=edge, guardcell=guardcell)
+            z = self.get_cell_coords(axis=2, blockID=blockID, edge=edge, guardcell=guardcell)
             x, y, z = np.meshgrid(x, y, z, indexing="ij")
             x = np.array((x.flatten(), y.flatten(), z.flatten()))
 
@@ -502,7 +465,6 @@ class FlashAMR(Structured):
 
         return is_in_box
 
-
     def refine_to_finest(
         self,
         refine_level: Optional[int] = None,
@@ -533,22 +495,17 @@ class FlashAMR(Structured):
                 msg += f"\t Domain x-coordinate range: ({self.xmin}, {self.xmax})\n"
                 raise Exception(msg)
 
-            if self.ndim > 1 and (
-                unibounds[1, 0] < self.ymin or self.ymax < unibounds[1, 1]
-            ):
+            if self.ndim > 1 and (unibounds[1, 0] < self.ymin or self.ymax < unibounds[1, 1]):
                 msg += "Subdomain y-coordinates exceed domain coordinates:\n"
                 msg += f"\t Chosen subdomain y-coordinate range: ({unibounds[1,0]}, {unibounds[1,1]})\n"
                 msg += f"\t Domain y-coordinate range: ({self.ymin}, {self.ymax})\n"
                 raise Exception(msg)
 
-            if self.ndim > 2 and (
-                unibounds[2, 0] < self.zmin or self.zmax < unibounds[2, 1]
-            ):
+            if self.ndim > 2 and (unibounds[2, 0] < self.zmin or self.zmax < unibounds[2, 1]):
                 msg += "Subdomain z-coordinates exceed domain coordinates:\n"
                 msg += f"\t Chosen subdomain z-coordinate range: ({unibounds[2,0]}, {unibounds[2,1]})\n"
                 msg += f"\t Domain z-coordinate range: ({self.zmin}, {self.zmax})\n"
                 raise Exception(msg)
-
 
         if subdomain:
             print(f"(xmin, xmax): ({self.xmin},{self.xmax}) --> ({unibounds[0,0]},{unibounds[0,1]})")
@@ -562,24 +519,18 @@ class FlashAMR(Structured):
         # Get zonal dimensions of refined grid
         lrefcells = 2 ** (lref - 1)
         dims = np.array(
-            [
-                nb * bl * lrefcells
-                for nb, bl in zip(
-                    self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim]
-                )
-            ],
+            [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])],
             dtype=int,
         )
 
         # Get the zone deltas (edge to)
-        grid_delta = (unibounds[:,1] - unibounds[:,0]) / (float(dims) - 1.0)
+        grid_delta = (unibounds[:, 1] - unibounds[:, 0]) / (float(dims) - 1.0)
 
         # Get the zone half deltas (center to edge)
         grid_half_delta = 0.5e0 * grid_delta
 
-
         # Figure out the local block IDs first
-        #????
+        # ????
 
         fblk_x = self.nblockx * lrefcells
         fblk_y = self.nblocky * lrefcells
@@ -587,7 +538,6 @@ class FlashAMR(Structured):
 
         # compute subdomain_cells here
 
-    
         x = np.linspace(self.xmin, self.xmax - dx2, dims[0])
         if self.ndim > 1:
             dy = (self.ymax - self.ymin) / float(dims[1])
@@ -609,7 +559,6 @@ class FlashAMR(Structured):
                 cdx[cidx, 2] = np.argmin(np.abs(z - self.blk_bounds[cidx, 2, 0]))
 
         indices = np.zeros((self.nBlocks, self.nBlkCells, 3, 2))
-
 
     def contiguous_volume(self, field: str, starting_point, cells): ...
 
@@ -640,17 +589,13 @@ class FlashAMR(Structured):
             if n > 0:
                 self.data[name] = eval(expr_)
 
-
-    def slice_average(self, field: str, axis: int=0) -> tuple[np.ndarray, np.ndarray]:
+    def slice_average(self, field: str, axis: int = 0) -> tuple[np.ndarray, np.ndarray]:
         field_: str | None = self._fields.get(field)
         if field_ is None:
             field_ = field
 
         lrefcells: int = 2 ** (self.lrefmax - 1)
-        dims: list = [
-            nb * bl * lrefcells
-            for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])
-        ]
+        dims: list = [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])]
 
         ax_ = AXIS(axis)
 
@@ -659,15 +604,15 @@ class FlashAMR(Structured):
         axes: str = "xyz"[: self.ndim]
         match ax_:
             case AXIS.I:
-                layer_volume: float = (self.ymax-self.ymin) * (self.zmax-self.zmin)
+                layer_volume: float = (self.ymax - self.ymin) * (self.zmax - self.zmin)
                 rmin, rmax = self.xmin, self.xmax
                 nrb = self.nxb
             case AXIS.J:
-                layer_volume: float = (self.xmax-self.xmin) * (self.zmax-self.zmin)
+                layer_volume: float = (self.xmax - self.xmin) * (self.zmax - self.zmin)
                 rmin, rmax = self.ymin, self.ymax
                 nrb = self.nyb
             case AXIS.K:
-                layer_volume: float = (self.ymax-self.ymin) * (self.xmax-self.xmin)
+                layer_volume: float = (self.ymax - self.ymin) * (self.xmax - self.xmin)
                 rmin, rmax = self.zmin, self.zmax
                 nrb = self.nzb
             case _:
@@ -696,10 +641,8 @@ class FlashAMR(Structured):
 
         return span, alp / (min_deltas[ax_.value] * layer_volume)
 
-
-    def slice_integral(self, field: str, axis: int=0):
+    def slice_integral(self, field: str, axis: int = 0):
         raise NotCallableError
-
 
     def volume_average(self, field: str) -> float:
         field_ = self._fields.get(field)
@@ -707,8 +650,7 @@ class FlashAMR(Structured):
             field_ = field
 
         blk_list = self.get_list_of_blocks()
-        return np.mean(self.data[field_][blk_list,...] * self.volumes[blk_list,None,None,None] / self.domain_volume)
-
+        return np.mean(self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume)
 
     def volume_integration(self, field: str):
         field_ = self._fields.get(field)
@@ -716,14 +658,11 @@ class FlashAMR(Structured):
             field_ = field
 
         blk_list = self.get_list_of_blocks()
-        return np.sum(self.data[field_][blk_list,...] * self.volumes[blk_list,None,None,None] / self.domain_volume)
+        return np.sum(self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume)
 
     def reynolds_stress(self, raxis: AXIS = AXIS.I) -> tuple[np.ndarray, np.ndarray]:
         lrefcells: int = 2 ** (self.lrefmax - 1)
-        dims = [
-            nb * bl * lrefcells
-            for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])
-        ]
+        dims = [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])]
 
         ax_ = raxis
 
@@ -732,15 +671,15 @@ class FlashAMR(Structured):
         axes = "xyz"[: self.ndim]
         match ax_:
             case AXIS.I:
-                layer_volume: float = (self.ymax-self.ymin) * (self.zmax-self.zmin)
+                layer_volume: float = (self.ymax - self.ymin) * (self.zmax - self.zmin)
                 rmin, rmax = self.xmin, self.xmax
                 nrb = self.nxb
             case AXIS.J:
-                layer_volume: float = (self.xmax-self.xmin) * (self.zmax-self.zmin)
+                layer_volume: float = (self.xmax - self.xmin) * (self.zmax - self.zmin)
                 rmin, rmax = self.ymin, self.ymax
                 nrb = self.nyb
             case AXIS.K:
-                layer_volume: float = (self.ymax-self.ymin) * (self.xmax-self.xmin)
+                layer_volume: float = (self.ymax - self.ymin) * (self.xmax - self.xmin)
                 rmin, rmax = self.zmin, self.zmax
                 nrb = self.nzb
             case _:
@@ -776,7 +715,7 @@ class FlashAMR(Structured):
                     for j in range(jlo, jhi):
                         means[key][j] += np.sum(self.data[key][blkID, i, ...]) * volFrac
 
-        means = {k: v/layer_volume for k,v in means.items()}
+        means = {k: v / layer_volume for k, v in means.items()}
 
         for lb, blkID in enumerate(blocklist):
             dvol_red = min_deltas[ax_.value] / self.get_delta_from_refine_level(ax_.value, self.blk_lref[blkID])
@@ -784,19 +723,20 @@ class FlashAMR(Structured):
 
             for xk in range(nrb):
                 ilo, ihi = bindices[lb, xk, :]
+                dens = self.data["dens"][blkID, xk, ...]
 
                 for i in range(self.ndim):
                     vi = f"vel{axes[i]}"
-                    dens_veli = self.data[vi][blkID, xk, ...] * self.data["dens"][blkID, xk, ...]
+                    veli = self.data[vi][blkID, xk, ...]
 
-                    for j in range(i, self.ndim):                        
+                    for j in range(i, self.ndim):
                         vj = f"vel{axes[j]}"
-                        velj = self.data[vj][blkID, xk, ...] 
+                        velj = self.data[vj][blkID, xk, ...]
 
                         RSkey = f"R{axes[i]}{axes[j]}"
 
                         for k in range(ilo, ihi):
-                            stresses[RSkey][k] += np.sum( dens_veli * (velj - means[vj][k])) * volFrac
+                            stresses[RSkey][k] += np.sum(dens * (veli - means[vi][k]) * (velj - means[vj][k])) * volFrac
 
         for key in stresses.keys():
             stresses[key] /= layer_volume * means["dens"]
@@ -808,19 +748,19 @@ class FlashAMR(Structured):
         # If mask provided apply it, else use an "all inclusive mask" for simplicity here
         ma_ = mask if mask is not None else np.where(radius < np.inf)[0]
         rd_ = radius[ma_]
-        rs_ = {key: arr[ma_] for key,arr in stress.items()}
+        rs_ = {key: arr[ma_] for key, arr in stress.items()}
 
         pind = rs_["Rxx"].argmax()
 
         rpeak = rd_[pind]
-        rind = np.where( (rd_ <= np.inf) )[0] #np.where( (rpeak <= rd_) & (rd_ <= (rpeak + 64e5)) )
+        rind = np.where((rd_ <= np.inf))[0]  # np.where( (rpeak <= rd_) & (rd_ <= (rpeak + 64e5)) )
         rspan = rd_[rind]
         xfact = 1.0e5
         rspan /= xfact
 
         rmean = np.mean(rspan)
         rsxx = rs_["Rxx"][rind]
-        rfact = 10.0**np.max(np.floor(np.log10(rsxx)))
+        rfact = 10.0 ** np.max(np.floor(np.log10(rsxx)))
         rsxx /= rfact
 
         rmin = np.min(rspan)
@@ -850,6 +790,7 @@ class FlashAMR(Structured):
         return window_xmin, window_xmax
 
     def overwrite_velocities(self, xmin: float, xmax: float, filename: str):
+
         ds = yt.load(filename)
 
         domain_delta = ds.domain_right_edge.d - ds.domain_right_edge.d
@@ -867,6 +808,4 @@ class FlashAMR(Structured):
         dimensions = domain / min_delta
 
         ds = yt.load(self.filename)
-        cube = ds.covering_grid(
-            self.lrefmax, left_edge=ds.domain_left_edge.d, dims=dimensions
-        )
+        cube = ds.covering_grid(self.lrefmax, left_edge=ds.domain_left_edge.d, dims=dimensions)
