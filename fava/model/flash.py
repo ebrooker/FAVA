@@ -1,8 +1,8 @@
-
 from enum import Enum
 
 from fava.model.model import Model
 from fava.mesh import FlashAMR, FlashParticles
+
 
 class FileType(Enum):
     CHK = 0
@@ -18,18 +18,17 @@ class FLASH(Model):
         super().__init__(*args, **kwargs)
 
         self.chk_files = {
-            "by number": {int(str(p).split("hdf5_chk_")[-1]): p for p in self._filter_files("*hdf5_chk_*")},
-            "by index": {i: p for i,p in enumerate(self._filter_files("*hdf5_chk_*"))}
+            "by number": {int(str(p).split("hdf5_chk_")[-1]): p for p in self._filter_files("*hdf5_chk_????")},
+            "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_chk_????"))},
         }
         self.plt_files = {
-            "by number": {int(str(p).split("hdf5_plt_cnt_")[-1]): p for p in self._filter_files("*hdf5_plt_cnt_*")},
-            "by index": {i: p for i,p in enumerate(self._filter_files("*hdf5_plt_cnt_*"))}
+            "by number": {int(str(p).split("hdf5_plt_cnt_")[-1]): p for p in self._filter_files("*hdf5_plt_cnt_????")},
+            "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_plt_cnt_????"))},
         }
         self.prt_files = {
-            "by number": {int(str(p).split("hdf5_part_")[-1]): p for p in self._filter_files("*hdf5_part_*")},
-            "by index": {i: p for i,p in enumerate(self._filter_files("*hdf5_part_*"))}
+            "by number": {int(str(p).split("hdf5_part_")[-1]): p for p in self._filter_files("*hdf5_part_????")},
+            "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_part_????"))},
         }
-
 
     def nfiles(self, *args, **kwargs) -> int:
         file_type = kwargs.get("file_type", FileType.CHK)
@@ -44,7 +43,15 @@ class FLASH(Model):
                 n = len(self.prt_files["by index"].keys())
         return n
 
-    def load(self, file_index: int = 0, file_number: int=None, file_type: FileType|str=FileType.CHK, fields = None, *args, **kwargs):
+    def load(
+        self,
+        file_index: int = 0,
+        file_number: int = None,
+        file_type: FileType | str = FileType.CHK,
+        fields=None,
+        *args,
+        **kwargs,
+    ):
 
         file_ = None
         part_file_ = None
@@ -97,5 +104,3 @@ class FLASH(Model):
 
                 self.particles = FlashParticles(pfile_)
                 self.particles._load_particles(*args, **kwargs)
-
-        
