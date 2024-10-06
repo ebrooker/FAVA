@@ -257,9 +257,12 @@ class FlashAMR(Structured):
             if field not in self._flash_fields:
                 print(f"[WARNING] {field} field variable does not exist in dataset!")
                 continue
-            self.data[field] = np.swapaxes(self._h5file[f"{field:4}"][()], axis1=1, axis2=3).astype(FLOAT)
+            self.data[field] = np.ascontiguousarray(np.swapaxes(self._h5file[f"{field:4}"][()], axis1=1, axis2=3).astype(FLOAT))
 
-            # ToDo: Need to setup children and neighbor GID arrays
+        self.data_1d_view = {}
+        for field in self.data.keys():
+            self.data_1d_view[field] = self.data[field].view().reshape(-1)
+        # ToDo: Need to setup children and neighbor GID arrays
 
     def load(self, fields: Optional[List[str]] = None):
         with h5py.File(self._filename, "r") as self._h5file:
@@ -287,7 +290,7 @@ class FlashAMR(Structured):
     @cached_property
     def cell_volumes(self) -> np.ndarray:
         blk_list = self.get_list_of_blocks()
-        volumes = np.zeros_like(self.blk_lref, dtype=float)
+        volumes = np.zeros_like(self.blk_lref)
         for lb in blk_list:
             volumes[lb] = self.get_cell_volume(lb)
         return volumes
@@ -546,7 +549,7 @@ class FlashAMR(Structured):
             dz = (self.zmax - self.zmin) / float(dims[2])
             z = np.linspace(self.zmin, self.zmax - dz, dims[2])
 
-        cdx = np.empty((self.nBlocks, 3), dtype=int)
+        cdx = np.zeros((self.nBlocks, 3), dtype=int)
         for cidx in range(cdx.shape[0]):
             cdx[cidx, 0] = np.argmin(np.abs(x - self.blk_bounds[cidx, 0, 0]))
 
@@ -594,6 +597,28 @@ class FlashAMR(Structured):
         if field_ is None:
             field_ = field
 
+        ax_ = AXIS(axis)
+
+        min_deltas = [self.get_minimum_deltas(ii) for ii in range(self.ndim)]
+
+        match ax_:
+            case AXIS.I:
+                layer_volume: float = (self.ymax - self.ymin) * (self.zmax - self.zmin)
+            case AXIS.J:
+                layer_volume: float = (self.xmax - self.xmin) * (self.zmax - self.zmin)
+            case AXIS.K:
+                layer_volume: float = (self.ymax - self.ymin) * (self.xmax - self.xmin)
+            case _:
+                raise ValueError(f"Do not recognize AXIS enumeration {ax_}")
+
+        span, alp = self.slice_integral(field_, axis=ax_)
+        return span, alp / (min_deltas[ax_.value] * layer_volume)
+
+    def slice_integral(self, field: str, axis: int = 0):
+        field_: str | None = self._fields.get(field)
+        if field_ is None:
+            field_ = field
+
         lrefcells: int = 2 ** (self.lrefmax - 1)
         dims: list = [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])]
 
@@ -601,30 +626,24 @@ class FlashAMR(Structured):
 
         min_deltas = [self.get_minimum_deltas(ii) for ii in range(self.ndim)]
 
-        axes: str = "xyz"[: self.ndim]
         match ax_:
             case AXIS.I:
-                layer_volume: float = (self.ymax - self.ymin) * (self.zmax - self.zmin)
                 rmin, rmax = self.xmin, self.xmax
                 nrb = self.nxb
             case AXIS.J:
-                layer_volume: float = (self.xmax - self.xmin) * (self.zmax - self.zmin)
                 rmin, rmax = self.ymin, self.ymax
                 nrb = self.nyb
             case AXIS.K:
-                layer_volume: float = (self.ymax - self.ymin) * (self.xmax - self.xmin)
                 rmin, rmax = self.zmin, self.zmax
                 nrb = self.nzb
             case _:
                 raise ValueError(f"Do not recognize AXIS enumeration {ax_}")
 
-        dr = (rmax - rmin) / float(dims[ax_.value])
-        span = np.linspace(rmin, rmax, dims[ax_.value] + 1, dtype=FLOAT)
+        span = np.linspace(rmin, rmax, dims[ax_.value] + 1, dtype=np.float64)
 
         blocklist = self.get_list_of_blocks()
-        bindices = np.empty((blocklist.size, nrb, 2), dtype=int)
-        alp = np.empty(dims[ax_.value], dtype=FLOAT)
-        for lb, blkID in enumerate(blocklist):
+        alp = np.zeros(dims[ax_.value], dtype=np.float64)
+        for blkID in blocklist:
             lref_n = int(2 ** (self.lrefmax - 1) / 2 ** (self.blk_lref[blkID] - 1))
             lo, _ = self.blk_bounds[blkID, 0, :]
             ilo = np.argmin(np.abs(span[:-1] - lo))
@@ -632,17 +651,12 @@ class FlashAMR(Structured):
             dvol_red = min_deltas[ax_.value] / self.get_delta_from_refine_level(ax_, self.blk_lref[blkID])
             volFrac = self.get_cell_volume(blkID) * dvol_red
             for i in range(nrb):
-                # bindices[lb, i, 0] = ilo + i * lref_n
-                # bindices[lb, i, 1] = ilo + (i + 1) * lref_n
                 jlo = ilo + i * lref_n
                 jhi = ilo + (i + 1) * lref_n
                 for j in range(jlo, jhi):
                     alp[j] += np.sum(self.data[field_][blkID, i, ...]) * volFrac
 
-        return span, alp / (min_deltas[ax_.value] * layer_volume)
-
-    def slice_integral(self, field: str, axis: int = 0):
-        raise NotCallableError
+        return span, alp
 
     def volume_average(self, field: str) -> float:
         field_ = self._fields.get(field)
@@ -660,11 +674,29 @@ class FlashAMR(Structured):
         blk_list = self.get_list_of_blocks()
         return np.sum(self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume)
 
-    def reynolds_stress(self, raxis: AXIS = AXIS.I) -> tuple[np.ndarray, np.ndarray]:
+    def pdf1d(self, field: str, *args, **kwargs):
+        raise NotImplementedError
+
+    def pdf2d(self, field: str, *args, **kwargs):
+        raise NotImplementedError
+
+    def structure_functions(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def fractal_dimension(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def multi_fractal_dimension(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def velocity_statistics(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def reynolds_stress(self, raxis: int = 0) -> tuple[np.ndarray, np.ndarray]:
         lrefcells: int = 2 ** (self.lrefmax - 1)
         dims = [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])]
 
-        ax_ = raxis
+        ax_ = AXIS(raxis)
 
         min_deltas = [self.get_minimum_deltas(ii) for ii in range(self.ndim)]
 
@@ -699,7 +731,7 @@ class FlashAMR(Structured):
 
         blocklist = self.get_list_of_blocks()
 
-        bindices = np.empty((blocklist.size, nrb, 2), dtype=int)
+        bindices = np.zeros((blocklist.size, nrb, 2), dtype=int)
         for lb, blkID in enumerate(blocklist):
             lref_n = int(2 ** (self.lrefmax - 1) / 2 ** (self.blk_lref[blkID] - 1))
             lo, _ = self.blk_bounds[blkID, 0, :]

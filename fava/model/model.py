@@ -3,10 +3,10 @@ import h5py
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from collections import Counter
 
 from fava.util._exceptions import NotCallableError
 from fava.util import timer
+
 
 class Model:
     """Class encapsulating a data model. Requires a directory path to the model's data and optionally a model name.
@@ -67,8 +67,7 @@ class Model:
         self._name = self._directory.name if name is None else name
 
     def _filter_files(self, pattern: str):
-        return [file for file in self.files if file.match(pattern) ]
-
+        return [file for file in self.files if file.match(pattern)]
 
     def nfiles(self, *args, **kwargs) -> int:
         return len(self.files)
@@ -85,7 +84,7 @@ class Model:
 
     @classmethod
     def mesh_names(cls) -> list:
-        """ Returns the sorted list of mesh names registered """
+        """Returns the sorted list of mesh names registered"""
         return sorted(cls.__meshes.keys())
 
     def _load_mesh(self, filename: str | Path, fields: Optional[List[str]] = None):
@@ -104,7 +103,7 @@ class Model:
         """
         pass
 
-    def load(self, filenumber: int=0):
+    def load(self, filenumber: int = 0):
         """
         if len(self.files) <= filenumber:
             raise IndexError(f"Filenumber {filenumber} is out of bounds for filelist of length {len(self.files)}")
@@ -112,7 +111,6 @@ class Model:
         self._load_mesh(str(self.files[filenumber]))
         """
         pass
-
 
     # --------------------------
     # Register analysis methods
@@ -133,7 +131,6 @@ class Model:
 
     # --------------------------
 
-
     # --------------------------
     # HDF5 API methods
 
@@ -153,7 +150,7 @@ class Model:
             # If the values for this key is another dictionary, we need to go one group level down
             if isinstance(values, dict):
                 # Create a group handle and pass it and the sub-dict to write_to_hdf5()
-  
+
                 try:
                     group = handle.create_group(key)
                 except:
@@ -185,7 +182,6 @@ class Model:
                         print(exc2)
                         print(f"[ERROR] in making {key} for {handle}")
 
-
     def hdf5_key_exists(self, key: str, filename: str | Path) -> bool:
         _filename = Path(filename)
         exists: bool = False
@@ -195,4 +191,3 @@ class Model:
         return exists
 
     # --------------------------
-
