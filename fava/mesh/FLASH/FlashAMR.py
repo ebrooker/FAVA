@@ -241,7 +241,7 @@ class FlashAMR(Structured):
             self.zspn = self.zmax - self.zmin
             domain_bounds.append([self.zmin, self.zmax])
 
-        self.domain_bounds = np.array(domain_bounds)
+        self.domain_bounds = np.array(domain_bounds, dtype=FLOAT)
 
     def _set_time_info(self):
         self.dt = self._realscalars["dt"]
