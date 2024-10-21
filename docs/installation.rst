@@ -8,13 +8,13 @@ Installation
 Stable release
 --------------
 
-To install fava, run this command in your terminal:
+To install FAVA, run this command in your terminal:
 
 .. code-block:: console
 
-    $ pip install fava
+    $ pip install FAVA
 
-This is the preferred method to install fava, as it will always install the most recent stable release.
+This is the preferred method to install FAVA, as it will always install the most recent stable release.
 
 If you don't have `pip`_ installed, this `Python installation guide`_ can guide
 you through the process.
@@ -26,19 +26,19 @@ you through the process.
 From sources
 ------------
 
-The sources for fava can be downloaded from the `Github repo`_.
+The sources for FAVA can be downloaded from the `Github repo`_.
 
 You can either clone the public repository:
 
 .. code-block:: console
 
-    $ git clone git://github.com/ebrooker/fava
+    $ git clone git://github.com/ebrooker/FAVA
 
 Or download the `tarball`_:
 
 .. code-block:: console
 
-    $ curl -OJL https://github.com/ebrooker/fava/tarball/master
+    $ curl -OJL https://github.com/ebrooker/FAVA/tarball/master
 
 Once you have a copy of the source, you can install it with:
 
@@ -47,5 +47,5 @@ Once you have a copy of the source, you can install it with:
     $ python setup.py install
 
 
-.. _Github repo: https://github.com/ebrooker/fava
-.. _tarball: https://github.com/ebrooker/fava/tarball/master
+.. _Github repo: https://github.com/ebrooker/FAVA
+.. _tarball: https://github.com/ebrooker/FAVA/tarball/master

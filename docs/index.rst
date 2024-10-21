@@ -1,4 +1,4 @@
-Welcome to fava's documentation!
+Welcome to FAVA's documentation!
 ======================================
 
 .. toctree::
