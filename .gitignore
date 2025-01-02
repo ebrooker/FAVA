@@ -9,6 +9,8 @@
 # Python
 *.pyc
 __pycache__
+*.egg-info
+dist/
 
 # pyenv
 .python-version
@@ -19,3 +21,9 @@ __pycache__
 *.mod
 
 todo/
+*.pdf
+*.hdf5
+
+
+a.out
+
