@@ -310,7 +310,7 @@ class FLASH(Structured):
             shape = (l, k, j, i)
 
             # We want to store the arrays in as 64-bit reals, even if the file holds 32-bit reals
-            win: None | MPI.Win = mpi.allocate(
+            win: None | MPI.Win = mpi.reallocate(
                 id=name, nbytes=MPI.DOUBLE.Get_size() * l * i * j * k, itemsize=MPI.DOUBLE.Get_size()
             )
             buffer: MPI.buffer = win.Shared_query(0)[0]
@@ -341,14 +341,14 @@ class FLASH(Structured):
             dtype_: Any = dataset.dtype if dtype is None else dtype
 
             if dtype is None:
-                win: None | MPI.Win = mpi.allocate(id=key, nbytes=dataset.nbytes, itemsize=dtype_.itemsize)
+                win: None | MPI.Win = mpi.reallocate(id=key, nbytes=dataset.nbytes, itemsize=dtype_.itemsize)
                 buffer = win.Shared_query(0)[0]
                 array: NDArray = np.ndarray(buffer=buffer, dtype=dtype_, shape=shape)
                 dataset.read_direct(array)
 
             else:
                 tmp_ = dataset[()].astype(dtype)
-                win: None | MPI.Win = mpi.allocate(id=key, nbytes=tmp_.nbytes, itemsize=dtype_.itemsize)
+                win: None | MPI.Win = mpi.reallocate(id=key, nbytes=tmp_.nbytes, itemsize=dtype_.itemsize)
                 buffer = win.Shared_query(0)[0]
                 array: NDArray = np.ndarray(buffer=buffer, dtype=dtype_, shape=shape)
                 array[...] = tmp_[...]
@@ -356,9 +356,6 @@ class FLASH(Structured):
             mpi.comm.barrier()
             return array
         except Exception as exc:
-            from IPython import embed
-
-            embed()
             logger.exception("Error occurred in reading FLASH DATAFILE: <%s>", key, exc_info=True)
             raise RuntimeError from exc
 
@@ -1219,7 +1216,7 @@ class FLASH(Structured):
 
         # We need a shared memory location for the temporary variable during refinement, use shape (1, icells, jcells, kcells)
         shape: tuple[int] = (1, *total_cells)
-        win: None | MPI.Win = mpi.allocate(
+        win: None | MPI.Win = mpi.reallocate(
             id="in_data", nbytes=np.prod(shape) * MPI.DOUBLE.Get_size(), itemsize=MPI.DOUBLE.Get_size()
         )
         buffer: MPI.buffer = win.Shared_query(0)[0]
@@ -1227,17 +1224,19 @@ class FLASH(Structured):
 
         ttotal: float = 0.0
 
-        mpi.comm.barrier()
         mapping: dict = {}
         first: bool = True
 
         _fields: list[str] = fields if fields is not None else self.fields
+
+        mpi.comm.barrier()
         for key in _fields:
+
             ti: float = time.time()
 
             in_data[...] = 0.0
-            win.Fence()
-            win.Sync()
+
+            mpi.comm.barrier()
 
             if first:
                 for leaf in leaf_IDs:
@@ -1285,7 +1284,7 @@ class FLASH(Structured):
                                 mapping[tuple(ind)] = (leaf, i, j, k)
 
             if mpi.root:
-                print(f"Refining variable: {key}")
+                print(f"Refining variable: {key}", flush=True)
                 logger.info("Refining variable: %s", key)
 
             self.data(key)
@@ -1311,6 +1310,7 @@ class FLASH(Structured):
                 print(f"\t/timer/ - {tf} sec")
 
             first = False
+            mpi.comm.barrier()
 
         if mpi.root:
             print(f"Total refinement time: {ttotal} sec")
