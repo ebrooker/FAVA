@@ -20,6 +20,8 @@ from fava.model import Model
 logger: logging.Logger = logging.getLogger(__file__)
 MESH_MDIM: int = 3
 
+NP_INT64 = np.int64()
+
 
 class FAVA_MPI:
     root: bool = False
@@ -400,23 +402,23 @@ class FLASH(Structured):
 
     def _read_processor_numbers(self, handle: h5py.File) -> None:
         key: str = "processor number"
-        self.processors = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
+        self.processors = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
 
     def _read_node_type(self, handle: h5py.File) -> None:
         key: str = "node type"
-        self.node_type = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
+        self.node_type = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
 
     def _read_refine_level(self, handle: h5py.File) -> None:
         key: str = "refine level"
-        self.refine_level = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
+        self.refine_level = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
 
     def _read_gid(self, handle: h5py.File) -> None:
         key: str = "gid"
-        self.gid = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
+        self.gid = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
 
     def _read_which_child(self, handle: h5py.File) -> None:
         key: str = "which child"
-        self.which_child = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
+        self.which_child = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
 
     def _read_variable_data(self, handle: h5py.File, name: str) -> None:
         try:

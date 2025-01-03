@@ -155,5 +155,11 @@ def main() -> None:
 
     pipe.smooth_window_trajectory()
 
+    if mpi.root:
+        print("DONE!")
 
-    if mpi.root("DONE!")
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
