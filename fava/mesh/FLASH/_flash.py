@@ -1087,7 +1087,7 @@ class FLASH(Structured):
             procs[: self.ndim] = 1
 
             if mpi.root:
-                print("Setting refinement cells - 3D")
+                print("Setting refinement cells - 3D", flush=True)
             for i in range(nfacts):
                 if (
                     fine_blks[0] * self.nCellsVec[0] / procs[0] >= fine_blks[1] * self.nCellsVec[1] / procs[1]
@@ -1192,7 +1192,7 @@ class FLASH(Structured):
         leaves = len(leaf_IDs)
 
         if mpi.root:
-            print(f"{total_cells=}")
+            print(f"{total_cells=}", flush=True)
 
         mpi.comm.barrier()
 
@@ -1303,17 +1303,17 @@ class FLASH(Structured):
             if mpi.root:
                 if key == "dens":
                     print(
-                        f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}"
+                        f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}, flush=True"
                     )
                 tf: float = time.time() - ti
                 ttotal += tf
-                print(f"\t/timer/ - {tf} sec")
+                print(f"\t/timer/ - {tf} sec", flush=True)
 
             first = False
             mpi.comm.barrier()
 
         if mpi.root:
-            print(f"Total refinement time: {ttotal} sec")
+            print(f"Total refinement time: {ttotal} sec", flush=True)
 
         self.gid: NDArray = -1 * np.ones(int(2 * self.ndim + 1 + 2**self.ndim), dtype=np.int32)
         self.refine_level: NDArray = np.ones(1, dtype=np.int32)
@@ -1338,7 +1338,7 @@ class FLASH(Structured):
         self.zmin = refdom_bound_box[2, 0]
         self.zmax = refdom_bound_box[2, 1]
 
-        print(f"Number of Data Keys {len(self._data.keys())}")
+        print(f"Number of Data Keys {len(self._data.keys())}", flush=True)
 
         mpi.comm.barrier()
         if mpi.root:

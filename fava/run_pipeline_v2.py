@@ -80,7 +80,7 @@ class Pipeline:
         fn: Path = self.output_dir / _path
 
         if mpi.root:
-            print(fn)
+            print(fn, flush=True)
         try:
             pkey: str = "reynolds stresses"
             skey: str = "scalars"
@@ -129,7 +129,7 @@ class Pipeline:
         window_dimensions = (window_bounds / self.model.mesh.get_minimum_deltas(axis=1)).astype(int)
 
         if mpi.root:
-            print("Flame Window: ", window_bounds, window_dimensions)
+            print("Flame Window: ", right, window_dimensions, flush=True)
 
             self.model.save_to_hdf5(
                 data={
