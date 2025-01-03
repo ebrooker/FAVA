@@ -3,8 +3,8 @@ from pathlib import Path
 
 from fava.model.model import Model
 from fava.mesh import FlashParticles
-from fava.mesh.FLASH._flash import FLASH as FlashAMR
-from fava.mesh.FLASH._flash import mpi
+from fava.mesh import FLASH as FlashAMR
+from fava.util import mpi
 
 
 class FileType(Enum):

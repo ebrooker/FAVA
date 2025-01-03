@@ -15,115 +15,11 @@ from mpi4py import MPI
 
 from fava.geometry import AXIS, EDGE, GEOMETRY
 from fava.mesh.structured import Structured
+from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_NDIM
 from fava.model import Model
+from fava.util import mpi, NP_T, HID_T
 
 logger: logging.Logger = logging.getLogger(__file__)
-MESH_MDIM: int = 3
-
-NP_INT64 = np.int64()
-
-
-class FAVA_MPI:
-    root: bool = False
-    procs: int = 1
-    id: int = 0
-
-    def __init__(self) -> None:
-
-        # Note: This may change in the future if we choose to manually
-        # handle to instantiation of MPI Communicators, for now we use
-        # the MPI.Intracomm baked in one COMM_WORLD
-        self.comm: MPI.Intracomm = MPI.COMM_WORLD
-
-        self.procs = self.comm.Get_size()
-        self.id = self.comm.Get_rank()
-        self.root = self.id == 0
-
-        self.__windows = {}
-
-    def __del__(self) -> None:
-        if self.root:
-            print(f"MPI ROOT: Cleaning up shared memory")
-        self.clear_shared_memory()
-
-    def print(self, after: bool = False, *args, **kwargs) -> None:
-        if after:
-            print(f"[MPI ID #{mpi.id} AFTER] ", *args, **kwargs)
-        else:
-            print(f"[MPI ID #{mpi.id} BEFOR] ", *args, **kwargs)
-
-    def allocate(self, id: str, nbytes: int, itemsize: int) -> None | MPI.Win:
-
-        if id not in self.__windows:
-            _nbytes: int = 0
-            if mpi.root:
-                _nbytes += nbytes
-
-            win: MPI.Win = MPI.Win.Allocate_shared(size=_nbytes, disp_unit=itemsize, comm=mpi.comm)
-            self.__windows[id] = win
-
-        else:
-            win = self.__windows[id]
-
-        return win
-
-    def reallocate(self, id: str, nbytes: int, itemsize: int) -> None | MPI.Win:
-        self.deallocate(id=id)
-        return self.allocate(id=id, nbytes=nbytes, itemsize=itemsize)
-
-    def deallocate(self, id: str) -> None:
-        if id not in self.__windows:
-            return
-        win: MPI.Win = self.__windows[id]
-        win.Fence()
-        win.Free()
-        self.__windows.pop(id)
-
-    def clear_shared_memory(self) -> None:
-        for id in list(self.__windows.keys()):
-            self.deallocate(id=id)
-        self.__windows: dict = {}
-
-
-mpi = FAVA_MPI()
-
-
-class HDF5_TYPES:
-    F32: str = "<f4"
-    F64: str = "<f8"
-    F64_PARAMETER: List[Tuple[str]] = [("name", "S256"), ("value", "<f8")]
-
-    I32: str = "<i4"
-    I64: str = "<i8"
-    I32_PARAMETER: List[Tuple[str]] = [("name", "S256"), ("value", "<i4")]
-
-    BOOL_PARAMETER: Dict[str, Any] = {
-        "names": ["name", "value"],
-        "formats": ["S256", "<i4"],
-        "offsets": [4, 0],
-        "itemsize": 260,
-    }
-
-    STR_PARAMETER: Dict[str, Any] = {
-        "names": ["name", "value"],
-        "formats": ["S256", "S256"],
-        "offsets": [256, 0],
-        "itemsize": 512,
-    }
-
-    UNKNOWN_NAMES = "S4"
-
-
-HID_T = HDF5_TYPES()
-
-DATA_TYPES: dict = {
-    "float32": {"mpi": MPI.FLOAT, "numpy": np.float32, "h5py": HID_T.F32},
-    "float64": {"mpi": MPI.DOUBLE, "numpy": np.float64, "h5py": HID_T.F64},
-    "int32": {"mpi": MPI.INT32_T, "numpy": np.int32, "h5py": HID_T.I32},
-    "int64": {"mpi": MPI.INT64_T, "numpy": np.int64, "h5py": HID_T.I64},
-}
-
-# @dataclasses.dataclass
 
 
 class BLOCK_TYPE(Enum):
@@ -139,24 +35,6 @@ class BLOCK_TYPE(Enum):
     TRAVERSED = 254
     REFINEMENT = 321
     TRAVERSED_AND_ACTIVE = 278
-
-
-FIELD_MAPPING: Dict[str, str] = {
-    "velocity-x": "velx",
-    "velocity-y": "vely",
-    "velocity-z": "velz",
-    "density": "dens",
-    "pressure": "pres",
-    "temperature": "temp",
-    "energy": "ener",
-    "flame progress": "flam",
-    "ignition time": "igtm",
-    "velocity-divergence": "divv",
-    "vorticity": "vort",
-}
-
-NGUARD: int = 4
-MESH_NDIM: int = 3
 
 
 @Model.register_mesh()
@@ -402,23 +280,23 @@ class FLASH(Structured):
 
     def _read_processor_numbers(self, handle: h5py.File) -> None:
         key: str = "processor number"
-        self.processors = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
+        self.processors = self._read_shared_array(handle=handle, key=key, dtype=NP_T.INT64)
 
     def _read_node_type(self, handle: h5py.File) -> None:
         key: str = "node type"
-        self.node_type = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
+        self.node_type = self._read_shared_array(handle=handle, key=key, dtype=NP_T.INT64)
 
     def _read_refine_level(self, handle: h5py.File) -> None:
         key: str = "refine level"
-        self.refine_level = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
+        self.refine_level = self._read_shared_array(handle=handle, key=key, dtype=NP_T.INT64)
 
     def _read_gid(self, handle: h5py.File) -> None:
         key: str = "gid"
-        self.gid = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
+        self.gid = self._read_shared_array(handle=handle, key=key, dtype=NP_T.INT64)
 
     def _read_which_child(self, handle: h5py.File) -> None:
         key: str = "which child"
-        self.which_child = self._read_shared_array(handle=handle, key=key, dtype=NP_INT64)
+        self.which_child = self._read_shared_array(handle=handle, key=key, dtype=NP_T.INT64)
 
     def _read_variable_data(self, handle: h5py.File, name: str) -> None:
         try:
@@ -440,7 +318,7 @@ class FLASH(Structured):
             # Initialize the numpy array with float64 buffer
             self._data[name] = np.ndarray(buffer=buffer, dtype=np.float64, shape=shape)
 
-            win.Sync()
+            mpi.comm.barrier()
 
             # We don't really need all processes reading in the data, let root process handle it
             if mpi.root:
@@ -473,10 +351,14 @@ class FLASH(Structured):
                 win: None | MPI.Win = mpi.allocate(id=key, nbytes=tmp_.nbytes, itemsize=dtype_.itemsize)
                 buffer = win.Shared_query(0)[0]
                 array: NDArray = np.ndarray(buffer=buffer, dtype=dtype_, shape=shape)
+                array[...] = tmp_[...]
 
             mpi.comm.barrier()
             return array
         except Exception as exc:
+            from IPython import embed
+
+            embed()
             logger.exception("Error occurred in reading FLASH DATAFILE: <%s>", key, exc_info=True)
             raise RuntimeError from exc
 
