@@ -1,7 +1,10 @@
 from enum import Enum
+from pathlib import Path
 
 from fava.model.model import Model
-from fava.mesh import FlashAMR, FlashParticles
+from fava.mesh import FlashParticles
+from fava.mesh.FLASH._flash import FLASH as FlashAMR
+from fava.mesh.FLASH._flash import mpi
 
 
 class FileType(Enum):
@@ -14,25 +17,29 @@ class FileType(Enum):
 
 class FLASH(Model):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.chk_files = {
+        self.chk_files: dict[str, dict[int, Path]] = {
             "by number": {int(str(p).split("hdf5_chk_")[-1]): p for p in self._filter_files("*hdf5_chk_????")},
             "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_chk_????"))},
         }
-        self.plt_files = {
-            "by number": {int(str(p).split("hdf5_plt_cnt_")[-1]): p for p in self._filter_files("*hdf5_plt_cnt_????")},
+        self.plt_files: dict[str, dict[int, Path]] = {
+            "by number": {
+                int(str(p).split("hdf5_plt_cnt_")[-1]): p for p in self._filter_files("*hdf5_plt_cnt_????")
+            },
             "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_plt_cnt_????"))},
         }
-        self.prt_files = {
-            "by number": {int(str(p).split("hdf5_part_")[-1]): p for p in self._filter_files("*hdf5_part_????")},
+        self.prt_files: dict[str, dict[int, Path]] = {
+            "by number": {
+                int(str(p).split("hdf5_part_")[-1]): p for p in self._filter_files("*hdf5_part_????")
+            },
             "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_part_????"))},
         }
 
     def nfiles(self, *args, **kwargs) -> int:
         file_type = kwargs.get("file_type", FileType.CHK)
-        ftype_ = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
+        ftype_: FileType = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
 
         match ftype_:
             case FileType.CHK:
@@ -56,7 +63,7 @@ class FLASH(Model):
         file_ = None
         part_file_ = None
 
-        ftype_ = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
+        ftype_: FileType = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
 
         fkey = "by index" if file_number is None else "by number"
         nkey = file_index if file_number is None else file_number

@@ -145,18 +145,29 @@ class FlashAMR(Structured):
         self._metadata_loaded = True
 
     def _read_scalars(self):
-        self._intscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer scalars"][()]}
-        self._realscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real scalars"][()]}
+        self._intscalars = {
+            tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer scalars"][()]
+        }
+        self._realscalars = {
+            tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real scalars"][()]
+        }
         self._stringscalars = {
-            tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip() for tpl in self._open_file["string scalars"][()]
+            tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip()
+            for tpl in self._open_file["string scalars"][()]
         }
 
     def _read_runtime_parameters(self):
-        self._intrunpars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer runtime parameters"][()]}
-        self._realrunpars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real runtime parameters"][()]}
+        self._intrunpars = {
+            tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer runtime parameters"][()]
+        }
+        self._realrunpars = {
+            tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real runtime parameters"][()]
+        }
 
     def _read_Nvars_list(self):
-        self._flash_fields = [v.decode("UTF-8").strip() for v in np.squeeze(self._open_file["unknown names"][()])]
+        self._flash_fields = [
+            v.decode("UTF-8").strip() for v in np.squeeze(self._open_file["unknown names"][()])
+        ]
         self._nvars = len(self._flash_fields)
 
     def _set_fields(self):
@@ -257,7 +268,9 @@ class FlashAMR(Structured):
             if field not in self._flash_fields:
                 print(f"[WARNING] {field} field variable does not exist in dataset!")
                 continue
-            self.data[field] = np.ascontiguousarray(np.swapaxes(self._h5file[f"{field:4}"][()], axis1=1, axis2=3).astype(FLOAT))
+            self.data[field] = np.ascontiguousarray(
+                np.swapaxes(self._h5file[f"{field:4}"][()], axis1=1, axis2=3).astype(FLOAT)
+            )
 
         self.data_1d_view = {}
         for field in self.data.keys():
@@ -468,103 +481,6 @@ class FlashAMR(Structured):
 
         return is_in_box
 
-    def refine_to_finest(
-        self,
-        refine_level: Optional[int] = None,
-        subdomain_bounds: Optional[list | np.ndarray] = None,
-    ):
-        """
-        This one is going to be fun!
-
-        We need to take every block that is coarser than the specified uniform refinement level and break them up!
-        The real question, should we also apply any interpolation to smooth the data? Probably not.
-
-        Then it gets even more FUN... we have to find any blocks that are finer than the specified refinement level
-        and derefine them...!
-        """
-
-        subdomain = True if subdomain_bounds is not None else False
-
-        if subdomain:
-            unibounds = np.squeeze(np.array(subdomain_bounds))
-        else:
-            unibounds = self.domain_bounds
-
-        if subdomain:
-            msg = "[Subdomain Boundary Error]"
-            if unibounds[0, 0] < self.xmin or self.xmax < unibounds[0, 1]:
-                msg += "Subdomain x-coordinates exceed domain coordinates:\n"
-                msg += f"\t Chosen subdomain x-coordinate range: ({unibounds[0,0]}, {unibounds[0,1]})\n"
-                msg += f"\t Domain x-coordinate range: ({self.xmin}, {self.xmax})\n"
-                raise Exception(msg)
-
-            if self.ndim > 1 and (unibounds[1, 0] < self.ymin or self.ymax < unibounds[1, 1]):
-                msg += "Subdomain y-coordinates exceed domain coordinates:\n"
-                msg += f"\t Chosen subdomain y-coordinate range: ({unibounds[1,0]}, {unibounds[1,1]})\n"
-                msg += f"\t Domain y-coordinate range: ({self.ymin}, {self.ymax})\n"
-                raise Exception(msg)
-
-            if self.ndim > 2 and (unibounds[2, 0] < self.zmin or self.zmax < unibounds[2, 1]):
-                msg += "Subdomain z-coordinates exceed domain coordinates:\n"
-                msg += f"\t Chosen subdomain z-coordinate range: ({unibounds[2,0]}, {unibounds[2,1]})\n"
-                msg += f"\t Domain z-coordinate range: ({self.zmin}, {self.zmax})\n"
-                raise Exception(msg)
-
-        if subdomain:
-            print(f"(xmin, xmax): ({self.xmin},{self.xmax}) --> ({unibounds[0,0]},{unibounds[0,1]})")
-            if self.ndim > 1:
-                print(f"(ymin, ymax): ({self.ymin},{self.ymax}) --> ({unibounds[1,0]},{unibounds[1,1]})")
-                print(f"(zmin, zmax): ({self.zmin},{self.zmax}) --> ({unibounds[2,0]},{unibounds[2,1]})")
-        # nblkx, nblky, nblkz = self.nBlksVec
-
-        lref = self.lrefmax if refine_level is None else refine_level
-
-        # Get zonal dimensions of refined grid
-        lrefcells = 2 ** (lref - 1)
-        dims = np.array(
-            [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])],
-            dtype=int,
-        )
-
-        # Get the zone deltas (edge to)
-        grid_delta = (unibounds[:, 1] - unibounds[:, 0]) / (float(dims) - 1.0)
-
-        # Get the zone half deltas (center to edge)
-        grid_half_delta = 0.5e0 * grid_delta
-
-        # Figure out the local block IDs first
-        # ????
-
-        fblk_x = self.nblockx * lrefcells
-        fblk_y = self.nblocky * lrefcells
-        fblk_z = self.nblockz * lrefcells
-
-        # compute subdomain_cells here
-
-        x = np.linspace(self.xmin, self.xmax - dx2, dims[0])
-        if self.ndim > 1:
-            dy = (self.ymax - self.ymin) / float(dims[1])
-            y = np.linspace(self.ymin, self.ymax - dy, dims[1])
-        if self.ndim > 2:
-            dz = (self.zmax - self.zmin) / float(dims[2])
-            z = np.linspace(self.zmin, self.zmax - dz, dims[2])
-
-        cdx = np.zeros((self.nBlocks, 3), dtype=int)
-        for cidx in range(cdx.shape[0]):
-            cdx[cidx, 0] = np.argmin(np.abs(x - self.blk_bounds[cidx, 0, 0]))
-
-        if self.ndim > 1:
-            for cidx in range(cdx.shape[0]):
-                cdx[cidx, 1] = np.argmin(np.abs(y - self.blk_bounds[cidx, 1, 0]))
-
-        if self.ndim > 2:
-            for cidx in range(cdx.shape[0]):
-                cdx[cidx, 2] = np.argmin(np.abs(z - self.blk_bounds[cidx, 2, 0]))
-
-        indices = np.zeros((self.nBlocks, self.nBlkCells, 3, 2))
-
-    def contiguous_volume(self, field: str, starting_point, cells): ...
-
     def rms(self, field: str, particles: bool = False):
         """Returns the root mean square (RMS) of the field provided (pass the parameter <particles=True> to use particle data instead of mesh data)"""
         if particles:
@@ -620,7 +536,9 @@ class FlashAMR(Structured):
             field_ = field
 
         lrefcells: int = 2 ** (self.lrefmax - 1)
-        dims: list = [nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])]
+        dims: list = [
+            nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])
+        ]
 
         ax_ = AXIS(axis)
 
@@ -664,7 +582,9 @@ class FlashAMR(Structured):
             field_ = field
 
         blk_list = self.get_list_of_blocks()
-        return np.mean(self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume)
+        return np.mean(
+            self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume
+        )
 
     def volume_integration(self, field: str):
         field_ = self._fields.get(field)
@@ -672,7 +592,9 @@ class FlashAMR(Structured):
             field_ = field
 
         blk_list = self.get_list_of_blocks()
-        return np.sum(self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume)
+        return np.sum(
+            self.data[field_][blk_list, ...] * self.volumes[blk_list, None, None, None] / self.domain_volume
+        )
 
     def pdf1d(self, field: str, *args, **kwargs):
         raise NotImplementedError
@@ -739,14 +661,15 @@ class FlashAMR(Structured):
 
             dvol_red = min_deltas[ax_.value] / self.get_delta_from_refine_level(ax_.value, self.blk_lref[blkID])
             volFrac = self.get_cell_volume(blkID) * dvol_red
+
+            # Sums ijk -> i
+            _means = {k: np.einsum("ijk->i", self.data[key][blkID, ...]) * volFrac}
             for i in range(nrb):
                 bindices[lb, i, 0] = ilo + i * lref_n
                 bindices[lb, i, 1] = ilo + (i + 1) * lref_n
                 jlo, jhi = bindices[lb, i, :]
                 for key in means.keys():
-                    for j in range(jlo, jhi):
-                        means[key][j] += np.sum(self.data[key][blkID, i, ...]) * volFrac
-
+                    means[key][jlo:jhi] += _means[key][i]
         means = {k: v / layer_volume for k, v in means.items()}
 
         for lb, blkID in enumerate(blocklist):
@@ -766,14 +689,15 @@ class FlashAMR(Structured):
                         velj = self.data[vj][blkID, xk, ...]
 
                         RSkey = f"R{axes[i]}{axes[j]}"
-
                         for k in range(ilo, ihi):
-                            stresses[RSkey][k] += np.sum(dens * (veli - means[vi][k]) * (velj - means[vj][k])) * volFrac
+                            stresses[RSkey][k] += (
+                                np.sum(dens * (veli - means[vi][k]) * (velj - means[vj][k])) * volFrac
+                            )
 
         for key in stresses.keys():
-            stresses[key] /= layer_volume * means["dens"]
+            stresses[key] /= layer_volume
 
-        return radius, stresses
+        return radius, stresses, means
 
     def flame_window(self, radius: np.ndarray, stress: np.ndarray, mask: np.ndarray | None = None):
 

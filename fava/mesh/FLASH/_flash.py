@@ -9,6 +9,7 @@ from functools import cached_property
 
 import h5py
 import numpy as np
+import scipy.optimize
 from numpy.typing import NDArray
 from mpi4py import MPI
 
@@ -18,21 +19,6 @@ from fava.model import Model
 
 logger: logging.Logger = logging.getLogger(__file__)
 MESH_MDIM: int = 3
-
-
-import psutil
-import sys
-
-
-def rss():
-    return psutil.Process().memory_info().rss
-
-
-# PROFILING
-from collections import Counter
-import linecache
-import os
-import tracemalloc
 
 
 class FAVA_MPI:
@@ -401,7 +387,6 @@ class FLASH(Structured):
         self.bflags = self._read_shared_array(handle=handle, key=key)
 
     def _read_coordinates(self, handle: h5py.File) -> None:
-
         key: str = "coordinates"
         self.coordinates = self._read_shared_array(handle=handle, key=key)
 
@@ -415,23 +400,23 @@ class FLASH(Structured):
 
     def _read_processor_numbers(self, handle: h5py.File) -> None:
         key: str = "processor number"
-        self.processors = self._read_shared_array(handle=handle, key=key)
+        self.processors = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
 
     def _read_node_type(self, handle: h5py.File) -> None:
         key: str = "node type"
-        self.node_type = self._read_shared_array(handle=handle, key=key)
+        self.node_type = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
 
     def _read_refine_level(self, handle: h5py.File) -> None:
         key: str = "refine level"
-        self.refine_level = self._read_shared_array(handle=handle, key=key)
+        self.refine_level = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
 
     def _read_gid(self, handle: h5py.File) -> None:
         key: str = "gid"
-        self.gid = self._read_shared_array(handle=handle, key=key)
+        self.gid = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
 
     def _read_which_child(self, handle: h5py.File) -> None:
         key: str = "which child"
-        self.which_child = self._read_shared_array(handle=handle, key=key)
+        self.which_child = self._read_shared_array(handle=handle, key=key, dtype=np.int64)
 
     def _read_variable_data(self, handle: h5py.File, name: str) -> None:
         try:
@@ -468,15 +453,25 @@ class FLASH(Structured):
             logger.exception("Error occurred in reading FLASH VARIABLE DATA", exc_info=True)
             raise RuntimeError from exc
 
-    def _read_shared_array(self, handle: h5py.File, key: str) -> NDArray:
+    def _read_shared_array(self, handle: h5py.File, key: str, dtype=None) -> NDArray:
         try:
+
             dataset: h5py.Group | h5py.Dataset | h5py.Datatype = handle[key]
             shape: tuple = dataset.shape
-            dtype: Any = dataset.dtype
-            win: None | MPI.Win = mpi.allocate(id=key, nbytes=dataset.nbytes, itemsize=dtype.itemsize)
-            buffer = win.Shared_query(0)[0]
-            array: NDArray = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
-            dataset.read_direct(array)
+            dtype_: Any = dataset.dtype if dtype is None else dtype
+
+            if dtype is None:
+                win: None | MPI.Win = mpi.allocate(id=key, nbytes=dataset.nbytes, itemsize=dtype_.itemsize)
+                buffer = win.Shared_query(0)[0]
+                array: NDArray = np.ndarray(buffer=buffer, dtype=dtype_, shape=shape)
+                dataset.read_direct(array)
+
+            else:
+                tmp_ = dataset[()].astype(dtype)
+                win: None | MPI.Win = mpi.allocate(id=key, nbytes=tmp_.nbytes, itemsize=dtype_.itemsize)
+                buffer = win.Shared_query(0)[0]
+                array: NDArray = np.ndarray(buffer=buffer, dtype=dtype_, shape=shape)
+
             mpi.comm.barrier()
             return array
         except Exception as exc:
@@ -485,28 +480,28 @@ class FLASH(Structured):
 
     # SETTERS
     def _set_reals(self) -> None:
-        self.time: float = self.scalars["real"].get("time")
-        self.xmin: float = self.runtime_parameters["real"].get("xmin", 0)
-        self.xmax: float = self.runtime_parameters["real"].get("xmax", 1)
-        self.ymin: float = self.runtime_parameters["real"].get("ymin", 0)
-        self.ymax: float = self.runtime_parameters["real"].get("ymax", 1)
-        self.zmin: float = self.runtime_parameters["real"].get("zmin", 0)
-        self.zmax: float = self.runtime_parameters["real"].get("zmax", 1)
+        self.time: float = np.float64(self.scalars["real"].get("time"))
+        self.xmin: float = np.float64(self.runtime_parameters["real"].get("xmin", 0))
+        self.xmax: float = np.float64(self.runtime_parameters["real"].get("xmax", 1))
+        self.ymin: float = np.float64(self.runtime_parameters["real"].get("ymin", 0))
+        self.ymax: float = np.float64(self.runtime_parameters["real"].get("ymax", 1))
+        self.zmin: float = np.float64(self.runtime_parameters["real"].get("zmin", 0))
+        self.zmax: float = np.float64(self.runtime_parameters["real"].get("zmax", 1))
 
     def _set_integers(self) -> None:
-        self.ndim: int = self.scalars["integer"].get("dimensionality")
-        self.nxb: int = self.scalars["integer"].get("nxb")
-        self.nyb: int = self.scalars["integer"].get("nyb")
-        self.nzb: int = self.scalars["integer"].get("nzb")
-        self.iprocs: int = self.scalars["integer"].get("iprocs")
-        self.jprocs: int = self.scalars["integer"].get("jprocs")
-        self.kprocs: int = self.scalars["integer"].get("kprocs")
+        self.ndim: int = np.int64(self.scalars["integer"].get("dimensionality"))
+        self.nxb: int = np.int64(self.scalars["integer"].get("nxb"))
+        self.nyb: int = np.int64(self.scalars["integer"].get("nyb"))
+        self.nzb: int = np.int64(self.scalars["integer"].get("nzb"))
+        self.iprocs: int = np.int64(self.scalars["integer"].get("iprocs"))
+        self.jprocs: int = np.int64(self.scalars["integer"].get("jprocs"))
+        self.kprocs: int = np.int64(self.scalars["integer"].get("kprocs"))
 
-        self.nblockx: int = self.runtime_parameters["integer"].get("nblockx")
-        self.nblocky: int = self.runtime_parameters["integer"].get("nblocky")
-        self.nblockz: int = self.runtime_parameters["integer"].get("nblockz")
-        self.nblocks: int = self.scalars["integer"].get(
-            "total blocks", self.scalars["integer"].get("globalnumblocks")
+        self.nblockx: int = np.int64(self.runtime_parameters["integer"].get("nblockx"))
+        self.nblocky: int = np.int64(self.runtime_parameters["integer"].get("nblocky"))
+        self.nblockz: int = np.int64(self.runtime_parameters["integer"].get("nblockz"))
+        self.nblocks: int = np.int64(
+            self.scalars["integer"].get("total blocks", self.scalars["integer"].get("globalnumblocks"))
         )
 
     @property
@@ -856,20 +851,26 @@ class FLASH(Structured):
 
     def _write_block_node_type(self, handle: h5py.File) -> None:
         handle.create_dataset(
-            name="node type", shape=self.node_type.shape, dtype=HID_T.I32, data=self.node_type
+            name="node type", shape=self.node_type.shape, dtype=HID_T.I32, data=self.node_type.astype(np.int32)
         )
 
     def _write_block_refine_level(self, handle: h5py.File) -> None:
         handle.create_dataset(
-            name="refine level", shape=self.refine_level.shape, dtype=HID_T.I32, data=self.refine_level
+            name="refine level",
+            shape=self.refine_level.shape,
+            dtype=HID_T.I32,
+            data=self.refine_level.astype(np.int32),
         )
 
     def _write_block_gid(self, handle: h5py.File) -> None:
-        handle.create_dataset(name="gid", shape=self.gid.shape, dtype=HID_T.I32, data=self.gid)
+        handle.create_dataset(name="gid", shape=self.gid.shape, dtype=HID_T.I32, data=self.gid.astype(np.int32))
 
     def _write_processor_number(self, handle: h5py.File) -> None:
         handle.create_dataset(
-            name="processor number", shape=self.processors.shape, dtype=HID_T.I32, data=self.processors
+            name="processor number",
+            shape=self.processors.shape,
+            dtype=HID_T.I32,
+            data=self.processors.astype(np.int32),
         )
 
     def _write_bflags(self, handle: h5py.File) -> None:
@@ -877,7 +878,10 @@ class FLASH(Structured):
 
     def _write_which_child(self, handle: h5py.File) -> None:
         handle.create_dataset(
-            name="which child", shape=self.which_child.shape, dtype=HID_T.I32, data=self.which_child
+            name="which child",
+            shape=self.which_child.shape,
+            dtype=HID_T.I32,
+            data=self.which_child.astype(np.int32),
         )
 
     def _write_nvars(self, handle: h5py.File) -> None:
@@ -1512,6 +1516,85 @@ class FLASH(Structured):
 
         return sorted(prime_factors, reverse=True), factoring
 
+    def slice_average(self, field: str, axis: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        # field_: str | None = self.fields.get(field)
+        # if field_ is None:
+        field_: str = field
+
+        ax_ = AXIS(axis)
+
+        min_deltas: NDArray = np.array(
+            [self.get_minimum_deltas(ii) for ii in range(self.ndim)], dtype=np.float64
+        )
+
+        match ax_:
+            case AXIS.I:
+                layer_volume: float = (self.ymax - self.ymin) * (self.zmax - self.zmin)
+            case AXIS.J:
+                layer_volume: float = (self.xmax - self.xmin) * (self.zmax - self.zmin)
+            case AXIS.K:
+                layer_volume: float = (self.ymax - self.ymin) * (self.xmax - self.xmin)
+            case _:
+                raise ValueError(f"Do not recognize AXIS enumeration {ax_}")
+
+        span, alp = self.slice_integral(field_, axis=ax_)
+        return span, alp / (min_deltas[ax_.value] * layer_volume)
+
+    def slice_integral(self, field: str, axis: int = 0):
+        # field_: str | None = self._fields.get(field)
+        # if field_ is None:
+        field_: str = field
+
+        lrefcells: int = 2 ** (self.refine_level_max - 1)
+        dims: list = [
+            nb * bl * lrefcells for nb, bl in zip(self.nCellsVec[: self.ndim], self.nBlksVec[: self.ndim])
+        ]
+
+        ax_ = AXIS(axis)
+
+        min_deltas: NDArray = np.array(
+            [self.get_minimum_deltas(ii) for ii in range(self.ndim)], dtype=np.float64
+        )
+
+        match ax_:
+            case AXIS.I:
+                rmin, rmax = self.xmin, self.xmax
+                nrb: int = self.nxb
+            case AXIS.J:
+                rmin, rmax = self.ymin, self.ymax
+                nrb = self.nyb
+            case AXIS.K:
+                rmin, rmax = self.zmin, self.zmax
+                nrb = self.nzb
+            case _:
+                raise ValueError(f"Do not recognize AXIS enumeration {ax_}")
+
+        span: NDArray = np.linspace(rmin, rmax, dims[ax_.value] + 1, dtype=np.float64)
+
+        blocklist: NDArray = self.get_blocklist()
+        alp: NDArray = np.zeros(dims[ax_.value], dtype=np.float64)
+        vol_fracs: NDArray = self.get_cell_volumes() * (
+            min_deltas[ax_.value]
+            / self.get_delta_from_refine_level(axis=ax_.value, refine_level=self.refine_level[blocklist])
+        )
+
+        for lb, blk in enumerate(blocklist):
+            lref_n: int = int(2 ** (self.refine_level_max - 1) / 2 ** (self.refine_level[blk] - 1))
+            lo: float = self.block_bounds[blk, axis, 0]
+            ilo: int = np.argmin(np.abs(span[:-1] - lo))
+
+            mean: NDArray = np.einsum("ijk->i", self.data(field_)[blk, ...]) * vol_fracs[lb]
+            for i in range(nrb):
+                jlo: int = ilo + i * lref_n
+                jhi: int = ilo + (i + 1) * lref_n
+                alp[jlo:jhi] += mean[i]
+
+        global_alp: NDArray = np.zeros_like(alp)
+
+        mpi.comm.Allreduce(alp, global_alp)
+
+        return span, global_alp
+
     def reynolds_stress(self, raxis: int = 0):
         lrefcells: int = 2 ** (self.refine_level_max - 1)
         dims: list[int] = [
@@ -1524,7 +1607,7 @@ class FLASH(Structured):
             [self.get_minimum_deltas(ii) for ii in range(self.ndim)], dtype=np.float64
         )
 
-        axes = "xyz"[: self.ndim]
+        axes: str = "xyz"[: self.ndim]
 
         nrb: int = 0
         layer_volume: float = 0.0
@@ -1569,11 +1652,6 @@ class FLASH(Structured):
             / self.get_delta_from_refine_level(axis=ax_.value, refine_level=self.refine_level[blocklist])
         )
 
-        # print(
-        #     f"{mpi.id=}, dx={min_deltas[ax_.value]}, vmin={vol_fracs.min()}, vmax={vol_fracs.max()}, cmin={self.cell_volumes[blocklist].min()}, cmax={self.cell_volumes[blocklist].max()}"
-        # )
-
-        ibeg: int = self.blk_beg * nrb
         for lb, blk in enumerate(blocklist):
             lref_n: int = int(2 ** (self.refine_level_max - 1) / 2 ** (self.refine_level[blk] - 1))
             lo: float = self.block_bounds[blk, raxis, 0]
@@ -1622,3 +1700,48 @@ class FLASH(Structured):
             stress[key][...] = _tmp / layer_volume
 
         return radius, stress, means
+
+    def flame_window(self, radius: np.ndarray, stress: np.ndarray, mask: np.ndarray | None = None):
+
+        super_gaussian = lambda x, amp, x0, sigma: amp * np.exp(-2 * ((x - x0) / sigma) ** 10)
+        curve_fit = lambda func, x, y, p0: scipy.optimize.curve_fit(func, x, y, method="lm", p0=p0)
+
+        # If mask provided apply it, else use an "all inclusive mask" for simplicity here
+        ma_ = mask if mask is not None else np.where(radius < np.inf)[0]
+        rd_ = radius[ma_]
+        rs_ = {key: arr[ma_] for key, arr in stress.items()}
+
+        # pind = rs_["Rxx"].argmax()
+        # rpeak = rd_[pind]
+        rind = np.where((rd_ <= np.inf))[0]
+        rspan = rd_[rind]
+        xfact = 1.0e5
+        rspan /= xfact
+
+        rsxx = rs_["Rxx"][rind]
+        rfact = 10.0 ** np.max(np.floor(np.log10(rsxx)))
+        rsxx /= rfact
+
+        rmin = np.min(rspan)
+        opt_xx, _ = curve_fit(
+            super_gaussian,
+            rspan - rmin,
+            rsxx,
+            (np.max(rsxx), rspan[np.argmax(rsxx)], np.std(rsxx)),
+        )
+
+        rsyyzz = (rs_["Ryy"][rind] + rs_["Rzz"][rind]) / rfact
+        opt_yyzz, _ = curve_fit(
+            super_gaussian,
+            rspan - rmin,
+            rsyyzz,
+            (np.max(rsyyzz), rspan[np.argmax(rsyyzz)], np.std(rsyyzz)),
+        )
+
+        fit = opt_xx[1] + opt_yyzz[1]
+        fit *= 0.5
+
+        window_xmin = (fit - 16) * xfact
+        window_xmax = (fit + 16) * xfact
+
+        return window_xmin, window_xmax
