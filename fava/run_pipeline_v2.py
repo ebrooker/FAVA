@@ -3,7 +3,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
-
+from numpy.typing import NDArray
 
 from fava.model import FLASH
 from fava.mesh.FLASH._flash import mpi
@@ -38,35 +38,28 @@ class Pipeline:
 
     def smooth_window_trajectory(self) -> None:
 
-        if mpi.root:
-            xmax = np.zeros(self.model.nfiles)
-            time = np.zeros_like(xmax)
+        self.xmax: NDArray = np.zeros(self.model.nfiles)
+        self.time: NDArray = np.zeros_like(self.xmax)
 
-            for i, p in enumerate(sorted(self.model.plt_files["by_index"].keys())):
+        for i, p in enumerate(sorted(self.model.plt_files["by_index"].keys())):
 
-                self.model.load(file_number=p, file_type="plt")
+            self.model.load(file_number=p, file_type="plt")
 
-                _path: str = self.model.plt_files["by index"][p].stem
-                _path = _path.replace("plt_cnt", "analysis")
-                _path = _path.replace("chk", "analysis")
-                _path = _path.replace("part", "analysis")
-                fn: Path = self.output_dir / _path
+            _path: str = self.model.plt_files["by index"][p].stem
+            _path = _path.replace("plt_cnt", "analysis")
+            _path = _path.replace("chk", "analysis")
+            _path = _path.replace("part", "analysis")
+            fn: Path = self.output_dir / _path
 
-                with h5py.File(fn, "r") as f:
-                    win_right = f["scalars"]["window right"][()]
+            with h5py.File(fn, "r") as f:
+                win_right = f["scalars"]["window right"][()]
 
-                xmax[i] = win_right[0]
-                time[i] = self.model.mesh.time
+            self.xmax[i] = win_right[0]
+            self.time[i] = self.model.mesh.time
 
-        g_xmax = np.zeros_like(xmax)
-        g_time = np.zeros_like(time)
-
-        mpi.comm.Allreduce(xmax, g_xmax)
-        mpi.comm.Allreduce(time, g_time)
-
-        coef = np.polyfit(g_time, g_xmax, 1)
-        self.t0: float = g_time[0]
-        self.x0: float = g_xmax[0]
+        coef: NDArray = np.polyfit(self.time, self.xmax, 1)
+        self.t0: float = self.time[0]
+        self.x0: float = self.xmax[0]
         self.func = np.poly1d(coef)
 
     def reynolds_stress(self, index: int) -> None:
@@ -102,18 +95,18 @@ class Pipeline:
             self.model.mesh.data(flam)
 
         span, alp = self.model.slice_average(flam, axis=0)
-        ccspan = 0.5 * (span[1:] + span[:-1])
+        ccspan: NDArray = 0.5 * (span[1:] + span[:-1])
 
-        ccx = 0.5 * (x[1:] + x[:-1])
+        ccx: NDArray = 0.5 * (x[1:] + x[:-1])
 
-        mask = np.argwhere((0.0 < alp) & (alp < 1.0)).flatten()
+        mask: NDArray = np.argwhere((0.0 < alp) & (alp < 1.0)).flatten()
 
         xmin, xmax = self.model.mesh.flame_window(ccx, s, mask)
 
         ymin, ymax = (self.model.mesh.ymin, self.model.mesh.ymax)
         zmin, zmax = (self.model.mesh.zmin, self.model.mesh.zmax)
-        left = self.model.mesh.domain_bounds[:, 0]
-        right = self.model.mesh.domain_bounds[:, 1]
+        left: NDArray = self.model.mesh.domain_bounds[:, 0]
+        right: NDArray = self.model.mesh.domain_bounds[:, 1]
 
         left[0] = xmin
         right[0] = xmax
@@ -145,6 +138,12 @@ class Pipeline:
 
         mpi.comm.barrier()
 
+    def extract_windows(self, index: int) -> None:
+        self.model.load(file_index=index, file_type="plt")
+        xmax = self.x0 + (self.fun(self.model.mesh.time) - self.func(self.t0))
+        subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
+        self.model.mesh.from_amr(subdomain_coords=subdomain_coords)
+
 
 def main() -> None:
     pipe = Pipeline()
@@ -154,6 +153,9 @@ def main() -> None:
         pipe.reynolds_stress(index=i)
 
     pipe.smooth_window_trajectory()
+
+    for i in sorted(pipe.model.plt_files["by index"].keys()):
+        pipe.extract_windows(index=i)
 
     if mpi.root:
         print("DONE!")

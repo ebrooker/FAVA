@@ -330,4 +330,13 @@ class FlashUniform(FLASH):
                 continue
             spectral[key] *= integral_factor
 
+        k = spectral["k"]
+        intg = np.zeros_like(k, dtype=np.float64)
+        intguw = np.zeros_like(intg)
+
+        dk: NDArray = np.diff(k)
+        Edk = spectral["total"][1:] * dk
+        intguw: NDArray = np.cumsum(Edk)
+        intg: NDArray = np.cumsum((k[1:] ** -1) * Edk)
+
         return spectral
