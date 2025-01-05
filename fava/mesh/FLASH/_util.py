@@ -13,4 +13,4 @@ FIELD_MAPPING: dict[str, str] = {
 }
 
 NGUARD: int = 4
-MESH_NDIM: int = 3
+MESH_MDIM: int = 3

@@ -5,3 +5,4 @@ from fava.analysis.volume_average import volume_average
 from fava.analysis.volume_integration import volume_integration
 from fava.analysis.cross_correlation import cross_correlation
 from fava.analysis.auto_correlations import eulerian_autocorrelation, lagrangian_autocorrelation
+from fava.analysis.fractal_dimension import fractal_dimension

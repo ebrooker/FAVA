@@ -14,15 +14,15 @@ Functions that write the same way as AMR FLASH models should be moved to a paren
 from pathlib import Path
 from typing import List, Optional, Tuple, Any, Dict
 from functools import cached_property
-
+from math import log2
 import logging
 import numpy as np
 from numpy.typing import NDArray
 from mpi4py import MPI
 import h5py
-
+import itertools
 from fava.mesh.FLASH._flash import FLASH
-from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_NDIM
+from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_MDIM
 from fava.util import mpi, HID_T, NP_T
 
 logger: logging.Logger = logging.getLogger(__file__)
@@ -128,3 +128,136 @@ class FlashUniform(FLASH):
         except Exception as exc:
             logger.exception("Error reading FLASH FILE %s", self.filename, exc_info=True)
             raise RuntimeError from exc
+
+    def fractal_dimension(self, field: str, contour: float) -> dict:
+
+        height, width, depth = self.nCellsVec
+
+        self.load_data(names=[field])
+
+        if contour is None:
+            _contour: float = self._data[field].mean()
+        else:
+            _contour: float = contour
+
+        edata: NDArray = np.zeros((height, width, depth), dtype=np.int8)
+        edata[self._data[field] == _contour] = 1
+
+        depth_start: int = 0
+        if depth != 1:
+            depth_start = 1
+        else:
+            depth += 1
+
+        _data: dict = {"contour": _contour}
+
+        iterations: int = int((height - 2) * (width - 2) * (depth - depth_start - 1))
+        lb, ub = mpi.parallel_range(iterations=iterations)
+
+        for i, j, k in list(
+            itertools.product(range(1, height - 1), range(1, width - 1), range(depth_start, depth - 1))
+        )[lb:ub]:
+            val = self._data[field][i, j, k]
+
+            if val < _contour:
+                hidx = _contour - val
+
+                if self._data[field][i + 1, j, k] > _contour:
+                    if int(hidx / (self._data[field][i + 1, j, k] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i + 1, j, k] = 1
+
+                if self._data[field][i, j + 1, k] > _contour:
+                    if int(hidx / (self._data[field][i, j + 1, k] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i, j + 1, k] = 1
+
+                if self._data[field][i, j - 1, k] > _contour:
+                    if int(hidx / (self._data[field][i, j - 1, k] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i, j - 1, k] = 1
+
+                if self._data[field][i - 1, j, k] > _contour:
+                    if int(hidx / (self._data[field][i - 1, j, k] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i - 1, j, k] = 1
+
+                if self._data[field][i, j, k + 1] > _contour:
+                    if int(hidx / (self._data[field][i, j, k + 1] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i, j, k + 1] = 1
+
+                if self._data[field][i, j, k - 1] > _contour:
+                    if int(hidx / (self._data[field][i, j, k - 1] - val)) == 0:
+                        edata[i, j, k] = 1
+                    else:
+                        edata[i, j, k - 1] = 1
+
+        global_edata: NDArray = np.zeros_like(edata)
+        mpi.comm.Allreduce(edata, global_edata, MPI.MAX)
+
+        mpi.comm.barrier()
+        lowest_level: int = 0
+        largest_dim: int = min(height, width)
+        if depth > 1:
+            largest_dim = min(largest_dim, depth)
+
+        flength: int = int(log2(largest_dim) - lowest_level + 1)
+
+        result: NDArray = np.zeros((flength, 2))
+
+        for level in range(lowest_level, flength + lowest_level):
+            bdim = bdim_k = int(2**level)
+
+            if depth == 1:
+                bdim_k = 1
+
+            nfilled: int = 0
+
+            iterations: int = int(
+                len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
+            )
+            lb, ub = mpi.parallel_range(iterations=iterations)
+
+            mpi.comm.barrier()
+            for i, j, k in list(
+                itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
+            )[lb:ub]:
+                # bsum = 0
+                for bx, by, bz in itertools.product(
+                    range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
+                ):
+                    if global_edata[bx, by, bz] > 0:
+                        nfilled += 1
+                        break
+                    # bsum += edata[bx, by, bz]
+
+                # if bsum > 0:
+                #     nfilled += 1
+            nfilled_global = mpi.comm.allreduce(nfilled, op=MPI.SUM)
+            result[level, 0] = flength - level - 1
+            result[level, 1] = np.log2(nfilled_global)
+
+        filled_boxes = 2 ** result[:, 1]
+        cum_frac_dim: float = np.sum(np.log2(filled_boxes[:-1] / filled_boxes[1:]))
+        avg_frac_dim: float = cum_frac_dim / (filled_boxes.size - 1.0)
+
+        mean: NDArray = np.mean(result, axis=0)
+        std: NDArray = np.std(result, axis=0)
+        rval: float = np.sum((result[:, 0] - mean[0]) * (result[:, 1] - mean[1])) / (
+            np.prod(std) * result.shape[0]
+        )
+        slope: float = rval * std[1] / std[0]
+        regress: NDArray = np.array([slope, rval**2, mean[1] - slope * mean[0]])
+
+        _data["average fractal dimension"] = avg_frac_dim
+        _data["slope"] = regress[0]
+        _data["R2"] = regress[1]
+        _data["curve"] = regress[2]
+
+        return _data

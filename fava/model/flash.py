@@ -2,7 +2,7 @@ from enum import Enum
 from pathlib import Path
 
 from fava.model.model import Model
-from fava.mesh import FlashParticles
+from fava.mesh import FlashParticles, FlashUniform
 from fava.mesh import FLASH as FlashAMR
 from fava.util import mpi
 
@@ -13,6 +13,7 @@ class FileType(Enum):
     PRT = 2
     CHK_PRT = 3
     PLT_PRT = 4
+    UNI = 5
 
 
 class FLASH(Model):
@@ -37,6 +38,13 @@ class FLASH(Model):
             "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_part_????"))},
         }
 
+        self.uni_files: dict[str, dict[int, Path]] = {
+            "by number": {
+                int(str(p).split("hdf5_uniform_")[-1]): p for p in self._filter_files("*hdf5_uniform_????")
+            },
+            "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_uniform_????"))},
+        }
+
     def nfiles(self, *args, **kwargs) -> int:
         file_type = kwargs.get("file_type", FileType.CHK)
         ftype_: FileType = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
@@ -48,6 +56,10 @@ class FLASH(Model):
                 n = len(self.plt_files["by index"].keys())
             case FileType.PRT:
                 n = len(self.prt_files["by index"].keys())
+            case FileType.UNI:
+                n = len(self.uni_files["by index"].keys())
+            case _:
+                pass
         return n
 
     def load(
@@ -111,3 +123,9 @@ class FLASH(Model):
 
                 self.particles = FlashParticles(pfile_)
                 self.particles._load_particles(*args, **kwargs)
+
+            case FileType.UNI:
+                assert nkey in self.uni_files[fkey]
+                file_ = self.uni_files[fkey][nkey]
+                self.mesh = FlashUniform(file_)
+                self.mesh.load(*args, **kwargs)

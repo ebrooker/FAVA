@@ -62,5 +62,16 @@ class FAVA_MPI:
             self.deallocate(id=id)
         self.__windows: dict = {}
 
+    def parallel_range(self, iterations: int) -> tuple[int, int]:
+        extra: int = iterations % mpi.procs
+        local_iterations: int = iterations // mpi.procs
+        if mpi.id < extra:
+            local_iterations += 1
+            start: int = local_iterations * mpi.id
+        else:
+            start: int = extra * (local_iterations + 1) + (mpi.id - extra) * local_iterations
+
+        return start, start + local_iterations
+
 
 mpi = FAVA_MPI()

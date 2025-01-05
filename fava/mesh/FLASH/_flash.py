@@ -15,7 +15,7 @@ from mpi4py import MPI
 
 from fava.geometry import AXIS, EDGE, GEOMETRY
 from fava.mesh.structured import Structured
-from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_NDIM
+from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_MDIM
 from fava.model import Model
 from fava.util import mpi, NP_T, HID_T
 
@@ -304,14 +304,16 @@ class FLASH(Structured):
                 raise KeyError(f"{name} field not found in dataset {self.filename}")
 
             dataset: h5py.Group | h5py.Dataset | h5py.Datatype = handle[name]
-            shape: tuple = dataset.shape
+            shape: list[int] = list(dataset.shape)
 
-            l, i, j, k = shape
-            shape = (l, k, j, i)
+            axis1: int = shape[-3]
+            axis2: int = shape[-1]
+            shape[-3] = axis2
+            shape[-1] = axis1
 
             # We want to store the arrays in as 64-bit reals, even if the file holds 32-bit reals
             win: None | MPI.Win = mpi.reallocate(
-                id=name, nbytes=MPI.DOUBLE.Get_size() * l * i * j * k, itemsize=MPI.DOUBLE.Get_size()
+                id=name, nbytes=MPI.DOUBLE.Get_size() * np.prod(shape), itemsize=MPI.DOUBLE.Get_size()
             )
             buffer: MPI.buffer = win.Shared_query(0)[0]
 
@@ -323,7 +325,7 @@ class FLASH(Structured):
             # We don't really need all processes reading in the data, let root process handle it
             if mpi.root:
                 _temp_array: NDArray = np.ascontiguousarray(
-                    np.swapaxes(dataset[()].astype(np.float64), axis1=1, axis2=3)
+                    np.swapaxes(dataset[()].astype(np.float64), axis1=-1, axis2=-3)
                 )
                 self._data[name][...] = _temp_array
 
@@ -634,6 +636,7 @@ class FLASH(Structured):
 
                 # Expensive portion of the file saving, writing the variable data for UNK array
                 names_: List[str] = names if names is not None else self._data.keys()
+                self._write_nvars(handle=f, names=names_)
                 self._write_variable_data(handle=f, names=names_)
 
         except Exception as exc:
@@ -765,8 +768,8 @@ class FLASH(Structured):
             data=self.which_child.astype(np.int32),
         )
 
-    def _write_nvars(self, handle: h5py.File) -> None:
-        fields = np.bytes_(self.fields, dtype=HID_T.UNKNOWN_NAMES)[:, None]
+    def _write_nvars(self, handle: h5py.File, names: list[str] | None = None) -> None:
+        fields = np.bytes_(names) if names is not None else self.fields.astype(HID_T.UNKNOWN_NAMES)
         handle.create_dataset(name="unknown names", shape=fields.shape, dtype=HID_T.UNKNOWN_NAMES, data=fields)
 
     def _write_variable_data(self, handle: h5py.File, names: List[str] = None) -> None:
@@ -1215,7 +1218,7 @@ class FLASH(Structured):
         )[cells_begin:cells_end, :]
 
         # We need a shared memory location for the temporary variable during refinement, use shape (1, icells, jcells, kcells)
-        shape: tuple[int] = (1, *total_cells)
+        shape = total_cells
         win: None | MPI.Win = mpi.reallocate(
             id="in_data", nbytes=np.prod(shape) * MPI.DOUBLE.Get_size(), itemsize=MPI.DOUBLE.Get_size()
         )
@@ -1290,7 +1293,7 @@ class FLASH(Structured):
             self.data(key)
 
             for dest, src in mapping.items():
-                in_data[0, *dest] = self._data[key][*src]
+                in_data[*dest] = self._data[key][*src]
 
             mpi.comm.barrier()
             win = mpi.reallocate(id=key, nbytes=in_data.nbytes, itemsize=in_data.itemsize)
@@ -1342,11 +1345,11 @@ class FLASH(Structured):
 
         mpi.comm.barrier()
         if mpi.root:
-            import matplotlib.pyplot as plt
-
-            # Slap a .uniform extension on the filename
-            uni_filename: Path = self.filename.with_suffix(".uniform")
-            self.save(filename=uni_filename)
+            uni_stem = self.filename.stem
+            uni_stem = uni_stem.replace("plt_cnt", "uniform")
+            uni_stem = uni_stem.replace("chk", "uniform")
+            uni_filename: Path = self.filename.with_stem(uni_stem)
+            self.save(filename=uni_filename, names=_fields)
 
         # Deallocate the in_data shared array
         mpi.deallocate(id="in_data")
