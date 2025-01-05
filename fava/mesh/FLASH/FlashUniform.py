@@ -24,6 +24,7 @@ import itertools
 from fava.mesh.FLASH._flash import FLASH
 from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_MDIM
 from fava.util import mpi, HID_T, NP_T
+from scipy.stats import binned_statistic
 
 logger: logging.Logger = logging.getLogger(__file__)
 
@@ -261,3 +262,72 @@ class FlashUniform(FLASH):
         _data["curve"] = regress[2]
 
         return _data
+
+    def kinetic_energy_spectra(self):
+
+        # Get the number of velocity components
+        velocity: list[str] = ["velx", "vely", "velz"][: self.ndim]
+
+        k_num = self.nCellsVec[: self.ndim]
+
+        k_start: NDArray = -k_num // 2
+        k_end = -k_start - 1
+
+        # Create the k-wavenumber grid for n-dimensions
+        k: NDArray = np.array(
+            np.meshgrid(
+                *(np.linspace(ks, ke, n) for ks, ke, n in zip(k_start, k_end, k_num)),
+                indexing="ij",
+            )
+        )
+
+        # Obtain length of k-vector
+        if self.ndim == 1:
+            k_abs: NDArray = np.abs(k)
+        else:
+            k_abs = np.sqrt((k**2).sum(axis=0))
+
+        bins: NDArray = np.arange(np.max(k_num) // 2) - 0.5
+
+        ffts = []
+
+        # For each velocity component, compute the FFT and shift center to k=0
+        dens = np.sqrt(self.data("dens"))
+        for component in velocity:
+            fft: NDArray[np.complex128] = np.fft.fftn(dens * self.data(component), norm="forward")
+            fft = np.fft.fftshift(fft)
+            ffts.append(fft)
+        ffts: NDArray = np.array(ffts)
+
+        power: Dict[str, NDArray] = {"total": 0.5 * (np.abs(ffts) ** 2).sum(axis=0)}
+
+        power["longitudinal"] = np.zeros(k_num, dtype=np.complex128)
+        if self.ndim == 1:
+            power["longitudinal"] += k * ffts[0, ...]  # x-component velocity for 1D case
+
+        if self.ndim > 1:
+            for n in range(self.ndim):
+                power["longitudinal"] += k[n] * ffts[n, ...].T
+
+        power["longitudinal"] = np.abs(power["longitudinal"] / np.maximum(k_abs, 1e-99)) ** 2
+        power["transverse"] = power["total"] - power["longitudinal"]
+
+        spectral: dict[str, NDArray] = {}
+        for key, val in power.items():
+            binstats = binned_statistic(k_abs.flatten(), val.flatten(), bins=bins, statistic="mean")
+
+            if "k" not in spectral:
+                spectral["k"] = binstats.bin_edges[:-1] + 0.5
+
+            spectral[key] = binstats.statistic
+
+        integral_factor: NDArray = spectral["k"] ** (self.ndim - 1)
+        if self.ndim > 1:
+            integral_factor *= 2 * np.pi * (self.ndim - 1)
+
+        for key in spectral.keys():
+            if key == "k":
+                continue
+            spectral[key] *= integral_factor
+
+        return spectral

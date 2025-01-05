@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fava.util._exceptions import NotCallableError
 from fava.util import timer
+from fava.util._mpi import mpi
 
 
 class Model:
@@ -179,8 +180,9 @@ class Model:
                         handle.create_dataset(key, data=copy.copy(values))
 
                     except Exception as exc2:
-                        print(exc2)
-                        print(f"[ERROR] in making {key} for {handle}")
+                        if mpi.root:
+                            print(exc2)
+                            print(f"[ERROR] in making {key} for {handle}", flush=True)
 
     def hdf5_key_exists(self, key: str, filename: str | Path) -> bool:
         _filename = Path(filename)
