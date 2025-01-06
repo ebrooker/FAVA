@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Any, Dict
 from functools import cached_property
 
+import yt
+
 import h5py
 import numpy as np
 import scipy.optimize
@@ -20,6 +22,8 @@ from fava.model import Model
 from fava.util import mpi, NP_T, HID_T
 
 logger: logging.Logger = logging.getLogger(__file__)
+
+USE_YT: bool = True
 
 
 class BLOCK_TYPE(Enum):
@@ -1237,89 +1241,103 @@ class FLASH(Structured):
 
         _fields: list[str] = fields if fields is not None else self.fields
 
-        mpi.comm.barrier()
-        for key in _fields:
-
-            ti: float = time.time()
-
-            in_data[...] = 0.0
-
-            mpi.comm.barrier()
-
-            if first:
-                for leaf in leaf_IDs:
-
-                    offx: int = local_BCIDs[leaf, 0, 0]
-                    offy: int = local_BCIDs[leaf, 1, 0] if self.ndim > 1 else 0
-                    offz: int = local_BCIDs[leaf, 2, 0] if self.ndim > 2 else 0
-                    off_blk: NDArray = np.array([offx, offy, offz])
-
-                    level_diff: int = ref_lev_max - self.refine_level[leaf]
-                    scale: int = int(2**level_diff)
-
-                    for i, j, k in block_indices:
-
-                        ii_range: int = range(i * scale, (i + 1) * scale)
-                        jj_range: int = range(
-                            j * scale if self.ndim > 1 else 0, (j + 1) * scale if self.ndim > 1 else 1
-                        )
-                        kk_range: int = range(
-                            k * scale if self.ndim > 2 else 0, (k + 1) * scale if self.ndim > 2 else 1
-                        )
-
-                        for ii, jj, kk in itertools.product(ii_range, jj_range, kk_range):
-                            in_subdom_flag: bool = False
-
-                            if subdomain_flag:
-                                in_subdom_flag = self._inSubdomain(
-                                    i=offx + ii,
-                                    j=offy + jj,
-                                    k=offz + kk,
-                                    subdomain_BCIDs=subdomain_BCIDs,
-                                )
-
-                            indices: NDArray = np.array([ii, jj, kk], dtype=np.int32)
-
-                            ind = off_blk + indices
-
-                            map_data: bool = True
-                            if subdomain_flag:
-                                map_data = in_subdom_flag
-                                if in_subdom_flag:
-                                    ind -= subdomain_BCIDs[:, 0]
-
-                            if map_data:
-                                mapping[tuple(ind)] = (leaf, i, j, k)
-
+        if USE_YT:
             if mpi.root:
-                print(f"Refining variable: {key}", flush=True)
-                logger.info("Refining variable: %s", key)
-
-            self.data(key)
-
-            for dest, src in mapping.items():
-                in_data[*dest] = self._data[key][*src]
-
-            mpi.comm.barrier()
-            win = mpi.reallocate(id=key, nbytes=in_data.nbytes, itemsize=in_data.itemsize)
-            self._data[key] = np.ndarray(
-                buffer=win.Shared_query(rank=0)[0], shape=in_data.shape, dtype=in_data.dtype
-            )
-            self._data[key][...] = in_data[...]
-
-            mpi.comm.barrier()
-            if mpi.root:
-                if key == "dens":
-                    print(
-                        f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}",
-                        flush=True,
+                ds = yt.load(self.filename)
+                cube = ds.covering_grid(ref_lev_max, subdomain_coords[:, 0], total_cells)
+                for key in _fields:
+                    in_data[...] = cube[key].d
+                    win = mpi.reallocate(id=key, nbytes=in_data.nbytes, itemsize=in_data.itemsize)
+                    self._data[key] = np.ndarray(
+                        buffer=win.Shared_query(rank=0)[0], shape=in_data.shape, dtype=in_data.dtype
                     )
-                tf: float = time.time() - ti
-                ttotal += tf
-                print(f"\t/timer/ - {tf} sec", flush=True)
+                    self._data[key][...] = in_data[...]
 
-            first = False
-            mpi.comm.barrier()
+                mpi.comm.barrier()
+
+        else:
+            for key in _fields:
+
+                ti: float = time.time()
+
+                in_data[...] = 0.0
+
+                mpi.comm.barrier()
+
+                if first:
+                    for leaf in leaf_IDs:
+
+                        offx: int = local_BCIDs[leaf, 0, 0]
+                        offy: int = local_BCIDs[leaf, 1, 0] if self.ndim > 1 else 0
+                        offz: int = local_BCIDs[leaf, 2, 0] if self.ndim > 2 else 0
+                        off_blk: NDArray = np.array([offx, offy, offz])
+
+                        level_diff: int = ref_lev_max - self.refine_level[leaf]
+                        scale: int = int(2**level_diff)
+
+                        for i, j, k in block_indices:
+
+                            ii_range: int = range(i * scale, (i + 1) * scale)
+                            jj_range: int = range(
+                                j * scale if self.ndim > 1 else 0, (j + 1) * scale if self.ndim > 1 else 1
+                            )
+                            kk_range: int = range(
+                                k * scale if self.ndim > 2 else 0, (k + 1) * scale if self.ndim > 2 else 1
+                            )
+
+                            for ii, jj, kk in itertools.product(ii_range, jj_range, kk_range):
+                                in_subdom_flag: bool = False
+
+                                if subdomain_flag:
+                                    in_subdom_flag = self._inSubdomain(
+                                        i=offx + ii,
+                                        j=offy + jj,
+                                        k=offz + kk,
+                                        subdomain_BCIDs=subdomain_BCIDs,
+                                    )
+
+                                indices: NDArray = np.array([ii, jj, kk], dtype=np.int32)
+
+                                ind = off_blk + indices
+
+                                map_data: bool = True
+                                if subdomain_flag:
+                                    map_data = in_subdom_flag
+                                    if in_subdom_flag:
+                                        ind -= subdomain_BCIDs[:, 0]
+
+                                if map_data:
+                                    mapping[tuple(ind)] = (leaf, i, j, k)
+
+                if mpi.root:
+                    print(f"Refining variable: {key}", flush=True)
+                    logger.info("Refining variable: %s", key)
+
+                self.data(key)
+
+                for dest, src in mapping.items():
+                    in_data[*dest] = self._data[key][*src]
+
+                mpi.comm.barrier()
+                win = mpi.reallocate(id=key, nbytes=in_data.nbytes, itemsize=in_data.itemsize)
+                self._data[key] = np.ndarray(
+                    buffer=win.Shared_query(rank=0)[0], shape=in_data.shape, dtype=in_data.dtype
+                )
+                self._data[key][...] = in_data[...]
+
+                mpi.comm.barrier()
+                if mpi.root:
+                    if key == "dens":
+                        print(
+                            f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}",
+                            flush=True,
+                        )
+                    tf: float = time.time() - ti
+                    ttotal += tf
+                    print(f"\t/timer/ - {tf} sec", flush=True)
+
+                first = False
+                mpi.comm.barrier()
 
         if mpi.root:
             print(f"Total refinement time: {ttotal} sec", flush=True)
