@@ -140,7 +140,13 @@ class Pipeline:
         xmax = self.x0 + (self.func(self.model.mesh.time) - self.func(self.t0))
         subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
         fields = [self.flam, "dens", "pres", "temp", "velx", "vely", "velz", "divv", "igtm", "vort"]
-        self.model.mesh.from_amr(subdomain_coords=subdomain_coords)
+        uni_stem: str = self.model.mesh.filename.stem
+        uni_stem = uni_stem.replace("plt_cnt", "uniform")
+        uni_stem = uni_stem.replace("chk", "uniform")
+        uni_filename: Path = self.output_dir / uni_stem
+        if uni_filename.is_file():
+            return
+        self.model.mesh.from_amr(subdomain_coords=subdomain_coords, fields=fields, filename=uni_filename)
 
 
 def main() -> None:
