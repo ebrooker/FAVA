@@ -38,12 +38,11 @@ class Pipeline:
 
     def smooth_window_trajectory(self) -> None:
 
-        self.xmax: NDArray = np.zeros(self.model.nfiles)
+        self.xmax: NDArray = np.zeros(self.model.nfiles(file_type="plt"))
         self.time: NDArray = np.zeros_like(self.xmax)
 
-        for i, p in enumerate(sorted(self.model.plt_files["by_index"].keys())):
-
-            self.model.load(file_number=p, file_type="plt")
+        for i, p in enumerate(sorted(self.model.plt_files["by index"].keys())):
+            self.model.load(file_index=p, file_type="plt")
 
             _path: str = self.model.plt_files["by index"][p].stem
             _path = _path.replace("plt_cnt", "analysis")
@@ -88,9 +87,7 @@ class Pipeline:
                 )
 
         flam: str = "rpv1"
-        try:
-            self.model.mesh.data(flam)
-        except:
+        if self.model.mesh.data(flam) is None:
             flam = "flam"
             self.model.mesh.data(flam)
 
@@ -140,7 +137,7 @@ class Pipeline:
 
     def extract_windows(self, index: int) -> None:
         self.model.load(file_index=index, file_type="plt")
-        xmax = self.x0 + (self.fun(self.model.mesh.time) - self.func(self.t0))
+        xmax = self.x0 + (self.func(self.model.mesh.time) - self.func(self.t0))
         subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
         self.model.mesh.from_amr(subdomain_coords=subdomain_coords)
 

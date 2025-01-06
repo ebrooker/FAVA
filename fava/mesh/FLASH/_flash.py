@@ -249,7 +249,8 @@ class FLASH(Structured):
 
     def _read_nvar_names(self, handle: h5py.File) -> None:
         try:
-            self.fields: NDArray = np.char.strip(np.squeeze(handle["unknown names"][()]).astype(str))
+            # np.char.
+            self.fields: NDArray = np.squeeze(handle["unknown names"][()]).astype(str)
 
         except Exception as exc:
             logger.exception("Error occurred in reading FLASH UNK VARIABLE NAMES", exc_info=True)
