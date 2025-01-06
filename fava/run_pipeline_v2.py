@@ -90,7 +90,7 @@ class Pipeline:
         if self.model.mesh.data(flam) is None:
             flam = "flam"
             self.model.mesh.data(flam)
-
+        self.flam = flam
         span, alp = self.model.slice_average(flam, axis=0)
         ccspan: NDArray = 0.5 * (span[1:] + span[:-1])
 
@@ -139,6 +139,7 @@ class Pipeline:
         self.model.load(file_index=index, file_type="plt")
         xmax = self.x0 + (self.func(self.model.mesh.time) - self.func(self.t0))
         subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
+        fields = [self.flam, "dens", "pres", "temp", "velx", "vely", "velz", "divv", "igtm", "vort"]
         self.model.mesh.from_amr(subdomain_coords=subdomain_coords)
 
 
