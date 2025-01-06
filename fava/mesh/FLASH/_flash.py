@@ -949,7 +949,11 @@ class FLASH(Structured):
         return self.domain_volume / float(cells)
 
     def from_amr(
-        self, subdomain_coords: NDArray | None = None, refine_level: int = -1, fields: list[str] | None = None
+        self,
+        subdomain_coords: NDArray | None = None,
+        refine_level: int = -1,
+        fields: list[str] | None = None,
+        filename: Path | None = None,
     ) -> None:
 
         MPI_REAL: MPI.Datatype = MPI.DOUBLE if self._chk_file else MPI.FLOAT
@@ -1307,7 +1311,8 @@ class FLASH(Structured):
             if mpi.root:
                 if key == "dens":
                     print(
-                        f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}, flush=True"
+                        f"dens={self._data[key].sum()}, min={self._data[key].min()}, max={self._data[key].max()}",
+                        flush=True,
                     )
                 tf: float = time.time() - ti
                 ttotal += tf
@@ -1342,14 +1347,16 @@ class FLASH(Structured):
         self.zmin = refdom_bound_box[2, 0]
         self.zmax = refdom_bound_box[2, 1]
 
-        print(f"Number of Data Keys {len(self._data.keys())}", flush=True)
-
         mpi.comm.barrier()
         if mpi.root:
-            uni_stem = self.filename.stem
-            uni_stem = uni_stem.replace("plt_cnt", "uniform")
-            uni_stem = uni_stem.replace("chk", "uniform")
-            uni_filename: Path = self.filename.with_stem(uni_stem)
+            print(f"Number of Data Keys {len(self._data.keys())}", flush=True)
+            if filename is None:
+                uni_stem: str = self.filename.stem
+                uni_stem = uni_stem.replace("plt_cnt", "uniform")
+                uni_stem = uni_stem.replace("chk", "uniform")
+                uni_filename: Path = self.filename.with_stem(uni_stem)
+            else:
+                uni_filename = filename
             self.save(filename=uni_filename, names=_fields)
 
         # Deallocate the in_data shared array
