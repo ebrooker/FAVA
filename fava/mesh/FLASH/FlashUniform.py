@@ -141,16 +141,17 @@ class FlashUniform(FLASH):
         else:
             _contour: float = contour
 
-        # We want to store the arrays in as 64-bit reals, even if the file holds 32-bit reals
+        shape: tuple[int] = (height, width, depth)
+        dtype = np.int8()
         win: None | MPI.Win = mpi.reallocate(
             id="edata",
-            nbytes=MPI.DOUBLE.Get_size() * np.prod((height, width, depth)),
-            itemsize=MPI.DOUBLE.Get_size(),
+            nbytes=dtype.itemsize * np.prod(shape),
+            itemsize=dtype.itemsize,
         )
         buffer: MPI.buffer = win.Shared_query(0)[0]
 
         # Initialize the numpy array with float64 buffer
-        edata = np.ndarray(buffer=buffer, dtype=np.int8, shape=(height, width, depth))
+        edata = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
 
         # edata: NDArray = np.zeros((height, width, depth), dtype=np.int8)
         edata[...] = 0
@@ -167,9 +168,28 @@ class FlashUniform(FLASH):
         iterations: int = int((height - 2) * (width - 2) * (depth - depth_start - 1))
         lb, ub = mpi.parallel_range(iterations=iterations)
 
-        for i, j, k in list(
-            itertools.product(range(1, height - 1), range(1, width - 1), range(depth_start, depth - 1))
-        )[lb:ub]:
+        shape: tuple[int] = (iterations, 3)
+        dtype = np.int16()
+        win: None | MPI.Win = mpi.reallocate(
+            id="indices",
+            nbytes=dtype.itemsize * np.prod(shape),
+            itemsize=dtype.itemsize,
+        )
+        buffer: MPI.buffer = win.Shared_query(0)[0]
+
+        # Initialize the numpy array with float64 buffer
+        indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+
+        if mpi.root:
+            indices[...] = np.array(
+                list(
+                    itertools.product(range(1, height - 1), range(1, width - 1), range(depth_start, depth - 1))
+                ),
+                dtype=dtype,
+            )
+
+        mpi.comm.barrier()
+        for i, j, k in indices[lb:ub]:
             val = self._data[field][i, j, k]
 
             if val < _contour:
@@ -211,7 +231,6 @@ class FlashUniform(FLASH):
                     else:
                         edata[i, j, k - 1] = 1
 
-        mpi.comm.barrier()
         lowest_level: int = 0
         largest_dim: int = min(height, width)
         if depth > 1:
@@ -234,10 +253,30 @@ class FlashUniform(FLASH):
             )
             lb, ub = mpi.parallel_range(iterations=iterations)
 
+            shape: tuple[int] = (iterations, 3)
+            dtype = np.int16()
+            win: None | MPI.Win = mpi.reallocate(
+                id="indices",
+                nbytes=dtype.itemsize * np.prod(shape),
+                itemsize=dtype.itemsize,
+            )
+            buffer: MPI.buffer = win.Shared_query(0)[0]
+
+            # Initialize the numpy array with float64 buffer
+            indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+
+            if mpi.root:
+                indices[...] = np.array(
+                    list(
+                        itertools.product(
+                            range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k)
+                        )
+                    ),
+                    dtype=dtype,
+                )
+
             mpi.comm.barrier()
-            for i, j, k in list(
-                itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
-            )[lb:ub]:
+            for i, j, k in indices[lb:ub]:
                 for bx, by, bz in itertools.product(
                     range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
                 ):
@@ -245,11 +284,11 @@ class FlashUniform(FLASH):
                         nfilled += 1
                         break
 
-            nfilled_global = mpi.comm.allreduce(nfilled, op=MPI.SUM)
+            nfilled_global: int = mpi.comm.allreduce(nfilled, op=MPI.SUM)
             result[level, 0] = flength - level - 1
             result[level, 1] = np.log2(nfilled_global)
 
-        mpi.comm.barrier()
+        mpi.deallocate(id="indices")
         mpi.deallocate(id="edata")
         filled_boxes = 2 ** result[:, 1]
         cum_frac_dim: float = np.sum(np.log2(filled_boxes[:-1] / filled_boxes[1:]))

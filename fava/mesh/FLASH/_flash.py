@@ -23,7 +23,7 @@ from fava.util import mpi, NP_T, HID_T
 
 logger: logging.Logger = logging.getLogger(__file__)
 
-USE_YT: bool = True
+USE_YT: bool = False
 
 
 class BLOCK_TYPE(Enum):
