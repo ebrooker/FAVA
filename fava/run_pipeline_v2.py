@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 
@@ -36,40 +37,25 @@ class Pipeline:
         assert isinstance(dictionary[key], vtype)
         return dictionary[key]
 
-    def smooth_window_trajectory(self) -> None:
+    def _flam_or_rpv1(self) -> bool:
+        self.flam: str = "rpv1"
+        if self.model.mesh.data(self.flam) is None:
+            self.flam = "flam"
 
-        self.xmax: NDArray = np.zeros(self.model.nfiles(file_type="plt"))
-        self.time: NDArray = np.zeros_like(self.xmax)
+        if self.model.mesh.data(self.flam) is None:
+            return False
 
-        for i, p in enumerate(sorted(self.model.plt_files["by index"].keys())):
-            self.model.load(file_index=p, file_type="plt")
+        return True
 
-            _path: str = self.model.plt_files["by index"][p].stem
-            _path = _path.replace("plt_cnt", "analysis")
-            _path = _path.replace("chk", "analysis")
-            _path = _path.replace("part", "analysis")
-            fn: Path = self.output_dir / _path
-
-            with h5py.File(fn, "r") as f:
-                win_right = f["scalars"]["window right"][()]
-
-            self.xmax[i] = win_right[0]
-            self.time[i] = self.model.mesh.time
-
-        coef: NDArray = np.polyfit(self.time, self.xmax, 1)
-        self.t0: float = self.time[0]
-        self.x0: float = self.xmax[0]
-        self.func = np.poly1d(coef)
+    def refresh_model(self) -> None:
+        del self.model
+        self.model = FLASH(self.data_dir)
 
     def reynolds_stress(self, index: int) -> None:
 
         self.model.load(file_index=index, file_type="plt")
 
-        _path: str = Path(self.model.mesh.filename).stem
-        _path = _path.replace("plt_cnt", "analysis")
-        _path = _path.replace("chk", "analysis")
-        _path = _path.replace("part", "analysis")
-        fn: Path = self.output_dir / _path
+        fn: Path = self.output_dir / self.convert_filename_type("plt", "anl").stem
 
         if mpi.root:
             print(fn, flush=True)
@@ -86,22 +72,23 @@ class Pipeline:
                     data={"reynolds stresses": {"tensor": s, "radius": x, "means": m}}, filename=fn
                 )
 
-        flam: str = "rpv1"
-        if self.model.mesh.data(flam) is None:
-            flam = "flam"
-            self.model.mesh.data(flam)
-        self.flam = flam
-        span, alp = self.model.slice_average(flam, axis=0)
+        success: bool = self._flam_or_rpv1()
+        if not success:
+            return
+
+        span, alp = self.model.slice_average(self.flam, axis=0)
         ccspan: NDArray = 0.5 * (span[1:] + span[:-1])
 
         ccx: NDArray = 0.5 * (x[1:] + x[:-1])
 
         mask: NDArray = np.argwhere((0.0 < alp) & (alp < 1.0)).flatten()
 
-        xmin, xmax = self.model.mesh.flame_window(ccx, s, mask)
+        centroid: float = self.model.mesh.flame_window(ccx, s, mask)
 
-        ymin, ymax = (self.model.mesh.ymin, self.model.mesh.ymax)
-        zmin, zmax = (self.model.mesh.zmin, self.model.mesh.zmax)
+        xmin: float = centroid - 16e5
+        xmax: float = centroid + 16e5
+        # ymin, ymax = (self.model.mesh.ymin, self.model.mesh.ymax)
+        # zmin, zmax = (self.model.mesh.zmin, self.model.mesh.zmax)
         left: NDArray = self.model.mesh.domain_bounds[:, 0]
         right: NDArray = self.model.mesh.domain_bounds[:, 1]
 
@@ -133,34 +120,104 @@ class Pipeline:
                 filename=fn,
             )
 
-        mpi.comm.barrier()
+    def smooth_window_trajectory(self) -> None:
+
+        self.xmax: NDArray = np.zeros(self.model.nfiles(file_type="plt"))
+        self.time: NDArray = np.zeros_like(self.xmax)
+
+        for i, p in enumerate(sorted(self.model.plt_files["by index"].keys())):
+            self.model.load(file_index=p, file_type="plt")
+
+            fn: Path = self.output_dir / self.convert_filename_type("plt", "anl").stem
+
+            with h5py.File(fn, "r") as f:
+                win_right = f["scalars"]["window right"][()]
+
+            self.xmax[i] = win_right[0]
+            self.time[i] = self.model.mesh.time
+
+        coef: NDArray = np.polyfit(self.time, self.xmax, 1)
+        self.t0: float = self.time[0]
+        self.x0: float = self.xmax[0]
+        self.func = np.poly1d(coef)
 
     def extract_windows(self, index: int) -> None:
         self.model.load(file_index=index, file_type="plt")
+
+        success: bool = self._flam_or_rpv1()
+        if not success:
+            return
+
         xmax = self.x0 + (self.func(self.model.mesh.time) - self.func(self.t0))
         subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
-        fields = [self.flam, "dens", "pres", "temp", "velx", "vely", "velz", "divv", "igtm", "vort"]
-        uni_stem: str = self.model.mesh.filename.stem
-        uni_stem = uni_stem.replace("plt_cnt", "uniform")
-        uni_stem = uni_stem.replace("chk", "uniform")
-        uni_filename: Path = self.output_dir / uni_stem
-        if uni_filename.is_file():
+        fields: list[str] = [self.flam, "dens", "pres", "temp", "velx", "vely", "velz", "divv", "igtm", "vort"]
+
+        fn: Path = self.output_dir / self.convert_filename_type("plt", "uni").stem
+
+        if fn.is_file():
             return
-        self.model.mesh.from_amr(subdomain_coords=subdomain_coords, fields=fields, filename=uni_filename)
+
+        self.model.mesh.from_amr(subdomain_coords=subdomain_coords, fields=fields, filename=fn)
+
+    def analyze_uniform_data(self, index: int) -> None:
+        self.model.load(file_index=index, file_type="uni")
+
+        success: bool = self._flam_or_rpv1()
+        if not success:
+            return
+
+        fn: Path = self.output_dir / self.convert_filename_type("uni", "anl").stem
+
+        akey: str = "fractal dimension"
+        if not self.settings[akey].get("skip", False):
+            contours: list[float] = self.settings[akey].get("contours", [0.5])
+            results: dict = {}
+
+            for contour in contours:
+                retval: dict = self.model.fractal_dimension(self.flam, contour)
+                results[f"{contour}"] = copy.deepcopy(retval)
+
+            mpi.comm.barrier()
+            if mpi.root:
+                self.model.save_to_hdf5(data={akey: {"flame progress": results}}, filename=fn)
+            mpi.comm.barrier()
+
+        akey = "structure functions"
+        if not self.settings[akey].get("skip", False):
+            retval: dict = self.model.structure_functions()
+            self.model.save_to_hdf5(data={akey: retval}, filename=fn)
+
+        akey = "kinetic energy spectra"
+        if not self.settings[akey].get("skip", False):
+            retval: dict = self.model.kinetic_energy_spectra()
+            self.model.save_to_hdf5(data={akey: retval}, filename=fn)
 
 
 def main() -> None:
     pipe = Pipeline()
     pipe.load_settings(settings_path=Path("pipeline_settings.json"))
 
-    for i in sorted(pipe.model.plt_files["by index"].keys()):
-        pipe.reynolds_stress(index=i)
+    if not pipe.settings["reynolds stress"].get("skip", False):
+        for i in sorted(pipe.model.plt_files["by index"].keys()):
+            pipe.reynolds_stress(index=i)
 
-    pipe.smooth_window_trajectory()
+    mpi.comm.barrier()
+    if not pipe.settings["smooth window trajectory"].get("skip", False):
+        pipe.smooth_window_trajectory()
 
-    for i in sorted(pipe.model.plt_files["by index"].keys()):
-        pipe.extract_windows(index=i)
+    mpi.comm.barrier()
+    if not pipe.settings["extract windows"].get("skip", False):
+        for i in sorted(pipe.model.plt_files["by index"].keys()):
+            pipe.extract_windows(index=i)
 
+    mpi.comm.barrier()
+    pipe.refresh_model()
+
+    mpi.comm.barrier()
+    for i in sorted(pipe.model.uni_files["by index"].keys()):
+        pipe.analyze_uniform_data()
+
+    mpi.comm.barrier()
     if mpi.root:
         print("DONE!")
 

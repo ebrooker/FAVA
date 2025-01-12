@@ -49,7 +49,8 @@ class FlashUniform(FLASH):
 
         if not isinstance(filename, (str, Path)):
             msg: str = f"Filename must be passed in as a {str} or {Path}; not {type(filename)}"
-            logger.error(msg)
+            if mpi.root:
+                logger.error(msg)
             return
 
         _fn: Path = Path(filename)
@@ -165,71 +166,53 @@ class FlashUniform(FLASH):
 
         _data: dict = {"contour": _contour}
 
-        iterations: int = int((height - 2) * (width - 2) * (depth - depth_start - 1))
-        lb, ub = mpi.parallel_range(iterations=iterations)
-
-        shape: tuple[int] = (iterations, 3)
-        dtype = np.int16()
-        win: None | MPI.Win = mpi.reallocate(
-            id="indices",
-            nbytes=dtype.itemsize * np.prod(shape),
-            itemsize=dtype.itemsize,
-        )
-        buffer: MPI.buffer = win.Shared_query(0)[0]
-
-        # Initialize the numpy array with float64 buffer
-        indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
-
-        if mpi.root:
-            indices[...] = np.array(
-                list(
-                    itertools.product(range(1, height - 1), range(1, width - 1), range(depth_start, depth - 1))
-                ),
-                dtype=dtype,
-            )
+        lb, ub = mpi.parallel_range(iterations=height - 2)
 
         mpi.comm.barrier()
-        for i, j, k in indices[lb:ub]:
-            val = self._data[field][i, j, k]
 
-            if val < _contour:
-                hidx = _contour - val
+        for i in list(range(1, height - 1))[lb:ub]:
+            for j, k in itertools.product(range(1, width - 1), range(depth_start, depth - 1)):
+                # for i, j, k in indices[lb:ub]:
+                val = self._data[field][i, j, k]
 
-                if self._data[field][i + 1, j, k] > _contour:
-                    if int(hidx / (self._data[field][i + 1, j, k] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i + 1, j, k] = 1
+                if val < _contour:
+                    hidx = _contour - val
 
-                if self._data[field][i, j + 1, k] > _contour:
-                    if int(hidx / (self._data[field][i, j + 1, k] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i, j + 1, k] = 1
+                    if self._data[field][i + 1, j, k] > _contour:
+                        if int(hidx / (self._data[field][i + 1, j, k] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i + 1, j, k] = 1
 
-                if self._data[field][i, j - 1, k] > _contour:
-                    if int(hidx / (self._data[field][i, j - 1, k] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i, j - 1, k] = 1
+                    if self._data[field][i, j + 1, k] > _contour:
+                        if int(hidx / (self._data[field][i, j + 1, k] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i, j + 1, k] = 1
 
-                if self._data[field][i - 1, j, k] > _contour:
-                    if int(hidx / (self._data[field][i - 1, j, k] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i - 1, j, k] = 1
+                    if self._data[field][i, j - 1, k] > _contour:
+                        if int(hidx / (self._data[field][i, j - 1, k] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i, j - 1, k] = 1
 
-                if self._data[field][i, j, k + 1] > _contour:
-                    if int(hidx / (self._data[field][i, j, k + 1] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i, j, k + 1] = 1
+                    if self._data[field][i - 1, j, k] > _contour:
+                        if int(hidx / (self._data[field][i - 1, j, k] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i - 1, j, k] = 1
 
-                if self._data[field][i, j, k - 1] > _contour:
-                    if int(hidx / (self._data[field][i, j, k - 1] - val)) == 0:
-                        edata[i, j, k] = 1
-                    else:
-                        edata[i, j, k - 1] = 1
+                    if self._data[field][i, j, k + 1] > _contour:
+                        if int(hidx / (self._data[field][i, j, k + 1] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i, j, k + 1] = 1
+
+                    if self._data[field][i, j, k - 1] > _contour:
+                        if int(hidx / (self._data[field][i, j, k - 1] - val)) == 0:
+                            edata[i, j, k] = 1
+                        else:
+                            edata[i, j, k - 1] = 1
 
         lowest_level: int = 0
         largest_dim: int = min(height, width)
@@ -248,41 +231,38 @@ class FlashUniform(FLASH):
 
             nfilled: int = 0
 
-            iterations: int = int(
-                len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
-            )
-            lb, ub = mpi.parallel_range(iterations=iterations)
+            # iterations: int = int(
+            #     len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
+            # )
+            lb, ub = mpi.parallel_range(iterations=len(range(0, height, bdim)))
 
-            shape: tuple[int] = (iterations, 3)
-            dtype = np.int16()
-            win: None | MPI.Win = mpi.reallocate(
-                id="indices",
-                nbytes=dtype.itemsize * np.prod(shape),
-                itemsize=dtype.itemsize,
-            )
-            buffer: MPI.buffer = win.Shared_query(0)[0]
+            # shape: tuple[int] = (iterations, 3)
+            # dtype = np.int16()
+            # win: None | MPI.Win = mpi.reallocate(
+            #     id="indices",
+            #     nbytes=dtype.itemsize * np.prod(shape),
+            #     itemsize=dtype.itemsize,
+            # )
+            # buffer: MPI.buffer = win.Shared_query(0)[0]
 
-            # Initialize the numpy array with float64 buffer
-            indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+            # # Initialize the numpy array with float64 buffer
+            # indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
 
-            if mpi.root:
-                indices[...] = np.array(
-                    list(
-                        itertools.product(
-                            range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k)
-                        )
-                    ),
-                    dtype=dtype,
-                )
+            # if mpi.root:
+            #     indices[...] = list(
+            #         itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
+            #     )
 
-            mpi.comm.barrier()
-            for i, j, k in indices[lb:ub]:
-                for bx, by, bz in itertools.product(
-                    range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
-                ):
-                    if edata[bx, by, bz] > 0:
-                        nfilled += 1
-                        break
+            # mpi.comm.barrier()
+            # for i, j, k in indices[lb:ub]:
+            for i in list(range(0, height, bdim))[lb:ub]:
+                for j, k in itertools.product(range(0, width, bdim), range(0, depth, bdim_k)):
+                    for bx, by, bz in itertools.product(
+                        range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
+                    ):
+                        if edata[bx, by, bz] > 0:
+                            nfilled += 1
+                            break
 
             nfilled_global: int = mpi.comm.allreduce(nfilled, op=MPI.SUM)
             result[level, 0] = flength - level - 1
@@ -307,9 +287,20 @@ class FlashUniform(FLASH):
         _data["R2"] = regress[1]
         _data["curve"] = regress[2]
 
+        if mpi.root:
+            print(type(_data["average fractal dimension"]), type(_data["slope"]), type(_data["R2"]))
+
         return _data
 
-    def kinetic_energy_spectra(self):
+    def kinetic_energy_spectra(self) -> dict[str, NDArray | float]:
+        """
+        Adapted from Federrath's KE Spectra Python code
+
+        Returns
+        -------
+        dict[str, NDArray | float]
+            _description_
+        """
 
         # Get the number of velocity components
         velocity: list[str] = ["velx", "vely", "velz"][: self.ndim]
@@ -376,13 +367,135 @@ class FlashUniform(FLASH):
                 continue
             spectral[key] *= integral_factor
 
-        k = spectral["k"]
-        intg = np.zeros_like(k, dtype=np.float64)
-        intguw = np.zeros_like(intg)
+        # k = spectral["k"]
+        # intg = np.zeros_like(k, dtype=np.float64)
+        # intguw = np.zeros_like(intg)
 
-        dk: NDArray = np.diff(k)
-        Edk = spectral["total"][1:] * dk
-        intguw: NDArray = np.cumsum(Edk)
-        intg: NDArray = np.cumsum((k[1:] ** -1) * Edk)
+        # dk: NDArray = np.diff(k)
+        # Edk = spectral["total"][1:] * dk
+        # intguw: NDArray = np.cumsum(Edk)
+        # intg: NDArray = np.cumsum((k[1:] ** -1) * Edk)
 
         return spectral
+
+    def structure_functions(
+        self,
+        num_seps: int = 100,
+        num_points: int = 10000,
+        sep_bounds: list[float] = [0.0, 1.0],
+        log_scale: bool = True,
+        anistropic: bool = False,
+    ) -> dict[str, dict[str, NDArray] | NDArray]:
+
+        vels: list[str] = ["velx", "vely", "velz"][: self.ndim]
+
+        if log_scale:
+            separations: NDArray = np.geomspace(*sep_bounds, num_seps)
+        else:
+            separations: NDArray = np.linspace(*sep_bounds, num_seps)
+
+        vsfs: dict[str, dict[str, NDArray] | NDArray] = {"transverse": {}, "longitudinal": {}}
+
+        for order in range(1, 11):
+            pt_coords: NDArray = np.empty((num_seps, 2, num_points, self.ndim))
+            vel_comps: NDArray = np.empty((num_seps, num_points, self.ndim))
+
+            pt_rand_1: NDArray = np.empty(num_points, self.ndim)
+            pt_rand_2: NDArray = np.empty(num_points, self.ndim)
+            for i, sep in enumerate(separations):
+                pt_rand_1[:, :] = (
+                    np.random.random((num_points, self.ndim)) * np.diff(self.domain_bounds, axis=1).ravel()
+                    + self.domain_bounds[:, 0].ravel()
+                )
+
+                phi: NDArray = 2.0 * np.pi * np.random.random(num_points)
+                theta: NDArray = np.arccos(2.0 * np.random.random(num_points) - 1.0)
+
+                pt_rand_2[:, 0] = pt_rand_1[:, 0] + separations * np.sin(theta) * np.cos(phi)
+                pt_rand_2[:, 1] = pt_rand_1[:, 1] + separations * np.sin(theta) * np.sin(phi)
+                pt_rand_2[:, 2] = pt_rand_1[:, 2] + separations * np.cos(theta)
+
+                # # X-direction
+                # while np.any(pt_rand_2[:, 0] > self.xmax):
+                #     pt_rand_2[pt_rand_2[:, 0] > self.xmax, 0] += self.xmin - self.xmax
+
+                # while np.any(pt_rand_2[:, 0] < self.xmin):
+                #     pt_rand_2[pt_rand_2[:, 0] < self.xmax, 0] += self.xmax - self.xmin
+
+                # # Y-direction
+                # while np.any(pt_rand_2[:, 1] > self.ymax):
+                #     pt_rand_2[pt_rand_2[:, 1] > self.ymax, 1] += self.ymin - self.ymax
+
+                # while np.any(pt_rand_2[:, 1] < self.ymin):
+                #     pt_rand_2[pt_rand_2[:, 1] < self.ymax, 1] += self.ymax - self.ymin
+
+                # # Z-direction
+                # while np.any(pt_rand_2[:, 2] > self.zmax):
+                #     pt_rand_2[pt_rand_2[:, 2] > self.zmax, 2] += self.zmin - self.zmax
+
+                # while np.any(pt_rand_2[:, 2] < self.zmin):
+                #     pt_rand_2[pt_rand_2[:, 2] < self.zmax, 2] += self.zmax - self.zmin
+
+                # Get velocity components
+                cell_size: NDArray = np.diff(self.domain_bounds)
+
+                pt1: NDArray = np.empty(pt_rand_1.shape, dtype=int)
+                pt2: NDArray = np.empty(pt_rand_2.shape, dtype=int)
+
+                for j in range(self.ndim):
+                    pt1[:, j] = np.mod(
+                        np.floor((pt_rand_1[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
+                        self.nCellsVec[j],
+                    )
+                    pt2[:, j] = np.mod(
+                        np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
+                        self.nCellsVec[j],
+                    )
+
+                for j, velocity in enumerate(vels):
+                    vel_comps[i, :, j] = (
+                        self.data(velocity)[pt2[:, 0], pt2[:, 1], pt2[:, 2]]
+                        - self.data(velocity)[pt1[:, 0], pt1[:, 1], pt1[:, 2]]
+                    )
+
+                pt_coords[i, 0, ...] = pt_rand_1
+                pt_coords[i, 1, ...] = pt_rand_2
+
+            sep_vec: NDArray = pt_coords[:, 1, :, :] - pt_coords[:, 0, :, :]
+
+            rhat: NDArray = np.empty_like(sep_vec)
+
+            if anistropic:
+                rhat[..., 0] = 1.0
+                rhat[..., 1:] = 0.0
+            else:
+                for i in range(self.ndim):
+                    rhat[..., i] = sep_vec[..., i] / np.sqrt(np.sum(sep_vec**2, axis=2))
+
+            long_comp: NDArray = np.abs(np.sum(vel_comps * rhat, axis=2))
+
+            long_vsfs: NDArray = np.sum(long_comp**order, axis=1) / float(num_points)
+
+            long_dvel: NDArray = np.empty_like(sep_vec)
+            for i in range(self.ndim):
+                long_dvel[..., i] = long_comp * rhat[..., i]
+
+            trans_comp: NDArray = np.sqrt(np.sum((vel_comps - long_dvel) ** 2, axis=2))
+            trans_vsfs: NDArray = np.sum(trans_comp**order, axis=1) / float(num_points)
+
+            vsfs["transverse"][f"{order}"] = np.copy(trans_vsfs)
+            vsfs["longitudinal"][f"{order}"] = np.copy(long_vsfs)
+            vsfs["separations"] = separations
+
+            return vsfs
+
+    def mass_fraction(self, masks: dict[str, NDArray] | None = None) -> NDArray:
+
+        mass: NDArray = self.data("dens") * self.cell_volume_min
+
+        xfrac: dict[str, NDArray] = {"total": np.sum(mass)}
+        for name, mask in masks.items():
+            xfrac[name] = np.sum(mass[mask])
+
+        del mass
+        return xfrac

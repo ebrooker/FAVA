@@ -7,3 +7,4 @@ from fava.analysis.cross_correlation import cross_correlation
 from fava.analysis.auto_correlations import eulerian_autocorrelation, lagrangian_autocorrelation
 from fava.analysis.fractal_dimension import fractal_dimension
 from fava.analysis.kinetic_energy_spectra import kinetic_energy_spectra
+from fava.analysis.structure_functions import structure_functions

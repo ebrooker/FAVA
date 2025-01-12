@@ -7,6 +7,14 @@ from fava.mesh import FLASH as FlashAMR
 from fava.util import mpi
 
 
+class FileSubStem(Enum):
+    CHK = "chk"
+    PLT = "plt_cnt"
+    PRT = "part"
+    UNI = "uniform"
+    ANL = "analysis"
+
+
 class FileType(Enum):
     CHK = 0
     PLT = 1
@@ -14,6 +22,7 @@ class FileType(Enum):
     CHK_PRT = 3
     PLT_PRT = 4
     UNI = 5
+    ANL = 6
 
 
 class FLASH(Model):
@@ -45,6 +54,13 @@ class FLASH(Model):
             "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_uniform_????"))},
         }
 
+        self.anl_files: dict[str, dict[int, Path]] = {
+            "by number": {
+                int(str(p).split("hdf5_analysis_")[-1]): p for p in self._filter_files("*hdf5_analysis_????")
+            },
+            "by index": {i: p for i, p in enumerate(self._filter_files("*hdf5_analysis_????"))},
+        }
+
     def nfiles(self, *args, **kwargs) -> int:
         file_type = kwargs.get("file_type", FileType.CHK)
         ftype_: FileType = file_type if isinstance(file_type, FileType) else FileType[file_type.upper()]
@@ -58,6 +74,8 @@ class FLASH(Model):
                 n = len(self.prt_files["by index"].keys())
             case FileType.UNI:
                 n = len(self.uni_files["by index"].keys())
+            case FileType.ANL:
+                n = len(self.anl_files["by index"].keys())
             case _:
                 pass
         return n
@@ -129,3 +147,19 @@ class FLASH(Model):
                 file_ = self.uni_files[fkey][nkey]
                 self.mesh = FlashUniform(file_)
                 self.mesh.load(*args, **kwargs)
+
+    def convert_filename_type(self, current_filetype: FileType | str, new_filetype: FileType | str) -> str:
+        if self.mesh is None:
+            return
+
+        curr_ftype_: FileType = (
+            current_filetype if isinstance(current_filetype, FileType) else FileType[current_filetype.upper()]
+        )
+        new_ftype_: FileType = (
+            new_filetype if isinstance(new_filetype, FileType) else FileType[new_filetype.upper()]
+        )
+
+        current_stem: str = self.mesh.filename.stem
+        new_stem: str = current_stem.replace(curr_ftype_.value, new_ftype_.value)
+
+        return self.mesh.filename.with_stem(new_stem)

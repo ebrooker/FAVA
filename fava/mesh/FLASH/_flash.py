@@ -19,7 +19,7 @@ from fava.geometry import AXIS, EDGE, GEOMETRY
 from fava.mesh.structured import Structured
 from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_MDIM
 from fava.model import Model
-from fava.util import mpi, NP_T, HID_T
+from fava.util import mpi, NP_T, HID_T, timer
 
 logger: logging.Logger = logging.getLogger(__file__)
 
@@ -67,7 +67,8 @@ class FLASH(Structured):
 
         if not isinstance(filename, (str, Path)):
             msg: str = f"Filename must be passed in as a {str} or {Path}; not {type(filename)}"
-            logger.error(msg)
+            if mpi.root:
+                logger.error(msg)
             return
 
         _fn: Path = Path(filename)
@@ -1614,7 +1615,8 @@ class FLASH(Structured):
 
         return radius, stress, means
 
-    def flame_window(self, radius: np.ndarray, stress: np.ndarray, mask: np.ndarray | None = None):
+    @timer
+    def flame_window(self, radius: np.ndarray, stress: np.ndarray, mask: np.ndarray | None = None) -> float:
 
         super_gaussian = lambda x, amp, x0, sigma: amp * np.exp(-2 * ((x - x0) / sigma) ** 10)
         curve_fit = lambda func, x, y, p0: scipy.optimize.curve_fit(func, x, y, method="lm", p0=p0)
@@ -1631,19 +1633,21 @@ class FLASH(Structured):
         xfact = 1.0e5
         rspan /= xfact
 
-        rsxx = rs_["Rxx"][rind]
-        rfact = 10.0 ** np.max(np.floor(np.log10(rsxx)))
-        rsxx /= rfact
+        # rsxx = rs_["Rxx"][rind]
+        # rfact = 10.0 ** np.max(np.floor(np.log10(rsxx)))
+        # rsxx /= rfact
 
         rmin = np.min(rspan)
-        opt_xx, _ = curve_fit(
-            super_gaussian,
-            rspan - rmin,
-            rsxx,
-            (np.max(rsxx), rspan[np.argmax(rsxx)], np.std(rsxx)),
-        )
+        # opt_xx, _ = curve_fit(
+        #     super_gaussian,
+        #     rspan - rmin,
+        #     rsxx,
+        #     (np.max(rsxx), rspan[np.argmax(rsxx)], np.std(rsxx)),
+        # )
 
-        rsyyzz = (rs_["Ryy"][rind] + rs_["Rzz"][rind]) / rfact
+        rsyyzz = rs_["Ryy"][rind] + rs_["Rzz"][rind]
+        rfact = 10.0 ** np.max(np.floor(np.log10(rsyyzz)))
+        rsyyzz /= rfact
         opt_yyzz, _ = curve_fit(
             super_gaussian,
             rspan - rmin,
@@ -1651,10 +1655,10 @@ class FLASH(Structured):
             (np.max(rsyyzz), rspan[np.argmax(rsyyzz)], np.std(rsyyzz)),
         )
 
-        fit = opt_xx[1] + opt_yyzz[1]
-        fit *= 0.5
+        fit = opt_yyzz[1]
+        # fit *= 0.5
 
-        window_xmin = (fit - 16) * xfact
-        window_xmax = (fit + 16) * xfact
+        # window_xmin = (fit - 16) * xfact
+        # window_xmax = (fit + 16) * xfact
 
-        return window_xmin, window_xmax
+        return fit * xfact
