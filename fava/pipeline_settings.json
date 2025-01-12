@@ -1,0 +1,23 @@
+{
+    "data folder": "/Users/ezrabrooker/SimulationData/rtflame/3d/rtfD3x128d66t159g119c42p",
+    "output folder": "/Users/ezrabrooker/SimulationData/rtflame/3d/rtfD3x128d66t159g119c42p",
+    "basename": "rtflame_hdf5_plt_cnt",
+    "dimension": 3,
+    "model": "rtfD3x128d66t159g119c42p",
+
+    "reynolds stress": {
+        "skip": true
+    },
+
+    "fractal dimension": {
+        "skip": false
+    },
+
+    "kinetic energy spectra": {
+        "skip": false
+    },
+
+    "structure functions": {
+        "skip": false
+    }
+}
