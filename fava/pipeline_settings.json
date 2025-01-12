@@ -6,7 +6,7 @@
     "model": "rtfD3x128d66t159g119c42p",
 
     "reynolds stress": {
-        "skip": true
+        "skip": false
     },
 
     "fractal dimension": {
