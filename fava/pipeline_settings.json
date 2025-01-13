@@ -9,8 +9,16 @@
         "skip": false
     },
 
-    "fractal dimension": {
+    "extract windows": {
         "skip": false
+    },
+
+    "fractal dimension": {
+        "skip": false,
+        "settings": {
+            "field": "flam",
+            "contours": 0.5
+        }
     },
 
     "kinetic energy spectra": {
@@ -18,6 +26,13 @@
     },
 
     "structure functions": {
-        "skip": false
+        "skip": false,
+        "settings": {
+            "num_seps": 100,
+            "num_points": 10000,
+            "sep_bounds": [6.25e3, 30.0e5],
+            "log_scale": true,
+            "anistropic": false  
+        }
     }
 }

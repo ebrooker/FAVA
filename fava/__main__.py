@@ -1,24 +1,34 @@
 import copy
 import json
+import logging
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
 from numpy.typing import NDArray
 
 from fava.model import FLASH
-from fava.mesh.FLASH._flash import mpi
+from fava.util import timer
+from fava.util._mpi import mpi, FAVAInterruptHandler
+
+CWD: Path = Path.cwd()
+PIPELINE_CHECKPOINT_FILE: Path = CWD / "fava.checkpoint"
+PIPELINE_SETTINGS_FILE: Path = CWD / "pipeline_settings.json"
+
+LOGGER: logging.Logger = logging.getLogger(__file__)
 
 
 class Pipeline:
 
-    # def __init__(self) -> None:
-    #     self.load_settings()
+    def __init__(self) -> None:
+        self.checkpoint_data: dict = {}
 
     def load_settings(self, settings_path: Path) -> None:
         with settings_path.open("r") as f:
             self.settings: dict = json.load(f)
 
+        self.checkpoint_data["settings"] = copy.deepcopy(self.settings)
         # Get model particulars, file basename, dimensionality, model name
         self.basename: str = self._get_validated_dictitem("basename", str, self.settings)
         self.ndim: int = self._get_validated_dictitem("dimension", int, self.settings)
@@ -47,18 +57,32 @@ class Pipeline:
 
         return True
 
+    def checkpoint(self) -> None:
+        if mpi.root:
+            with PIPELINE_CHECKPOINT_FILE.open("w") as f:
+                json.dump(self.checkpoint_data, f, ensure_ascii=True, indent=4)
+
+    def restart(self) -> None:
+        if PIPELINE_CHECKPOINT_FILE.is_file():
+            with PIPELINE_CHECKPOINT_FILE.open("r") as f:
+                self.checkpoint_data = json.load(f)
+
+        self.load_settings(settings_path=PIPELINE_SETTINGS_FILE)
+
     def refresh_model(self) -> None:
         del self.model
         self.model = FLASH(self.data_dir)
 
     def reynolds_stress(self, index: int) -> None:
 
-        self.model.load(file_index=index, file_type="plt")
+        file_type: str = "plt"
+        self.model.load(file_index=index, file_type=file_type)
 
-        fn: Path = self.output_dir / self.convert_filename_type("plt", "anl").stem
+        fn: Path = self.output_dir / self.model.convert_filename_type(file_type, "anl").stem
 
         if mpi.root:
-            print(fn, flush=True)
+            print("REYNOLDS STRESS: ", fn, flush=True)
+
         try:
             pkey: str = "reynolds stresses"
             skey: str = "scalars"
@@ -128,7 +152,7 @@ class Pipeline:
         for i, p in enumerate(sorted(self.model.plt_files["by index"].keys())):
             self.model.load(file_index=p, file_type="plt")
 
-            fn: Path = self.output_dir / self.convert_filename_type("plt", "anl").stem
+            fn: Path = self.output_dir / self.model.convert_filename_type("plt", "anl").stem
 
             with h5py.File(fn, "r") as f:
                 win_right = f["scalars"]["window right"][()]
@@ -152,7 +176,10 @@ class Pipeline:
         subdomain_coords: NDArray = np.array([[xmax - 32e5, xmax], [-16e5, 16e5], [-16e5, 16e5]])
         fields: list[str] = [self.flam, "dens", "pres", "temp", "velx", "vely", "velz", "divv", "igtm", "vort"]
 
-        fn: Path = self.output_dir / self.convert_filename_type("plt", "uni").stem
+        fn: Path = self.output_dir / self.model.convert_filename_type("plt", "uni").stem
+
+        if mpi.root:
+            print("EXTRACT: ", fn, flush=True)
 
         if fn.is_file():
             return
@@ -160,73 +187,135 @@ class Pipeline:
         self.model.mesh.from_amr(subdomain_coords=subdomain_coords, fields=fields, filename=fn)
 
     def analyze_uniform_data(self, index: int) -> None:
+        pkey: str = "analyze uniform data"
         self.model.load(file_index=index, file_type="uni")
 
         success: bool = self._flam_or_rpv1()
         if not success:
             return
 
-        fn: Path = self.output_dir / self.convert_filename_type("uni", "anl").stem
+        fn: Path = self.output_dir / self.model.convert_filename_type("uni", "anl").stem
 
-        akey: str = "fractal dimension"
-        if not self.settings[akey].get("skip", False):
-            contours: list[float] = self.settings[akey].get("contours", [0.5])
-            results: dict = {}
+        if mpi.root:
+            print("ANALYSIS: ", fn, flush=True)
 
-            for contour in contours:
-                retval: dict = self.model.fractal_dimension(self.flam, contour)
-                results[f"{contour}"] = copy.deepcopy(retval)
+        analyses: dict = {
+            "fractal dimension": self.model.fractal_dimension,
+            "structure functions": self.model.structure_functions,
+            "kinetic energy spectra": self.model.kinetic_energy_spectra,
+        }
 
-            mpi.comm.barrier()
-            if mpi.root:
-                self.model.save_to_hdf5(data={akey: {"flame progress": results}}, filename=fn)
-            mpi.comm.barrier()
+        akeys: list[str] = list(analyses.keys())
+        begin_key: str = self.checkpoint_data[pkey].get("analysis")
+        begin: int = 0
+        if begin_key is not None and begin_key in akeys:
+            begin = akeys.index(begin_key)
 
-        akey = "structure functions"
-        if not self.settings[akey].get("skip", False):
-            retval: dict = self.model.structure_functions()
-            mpi.comm.barrier()
-            self.model.save_to_hdf5(data={akey: retval}, filename=fn)
-            mpi.comm.barrier()
+        for akey in list(analyses.keys())[begin:]:
+            self.checkpoint_data[pkey]["analysis"] = akey
 
-        akey = "kinetic energy spectra"
-        if not self.settings[akey].get("skip", False):
-            retval: dict = self.model.kinetic_energy_spectra()
-            mpi.comm.barrier()
-            self.model.save_to_hdf5(data={akey: retval}, filename=fn)
-            mpi.comm.barrier()
+            if not self.settings[akey].get("skip", False):
+                _settings: dict = self.settings[akey].get("settings", {})
+                retval: dict = analyses[akey](**_settings)
+                mpi.comm.barrier()
+                if mpi.root:
+                    self.model.save_to_hdf5(data={akey: retval}, filename=fn)
+                mpi.comm.barrier()
+
+        self.checkpoint_data[pkey]["analysis"] = None
+
+        # akey: str = "fractal dimension"
+        # self.checkpoint_data[pkey]["analysis"] = akey
+
+        # if not self.settings[akey].get("skip", False):
+        #     _settings: dict = self.settings[akey].get("settings", {})
+        #     retval: dict = self.model.fractal_dimension(self.flam, **_settings)
+        #     mpi.comm.barrier()
+        #     if mpi.root:
+        #         self.model.save_to_hdf5(data={akey: {"flame progress": retval}}, filename=fn)
+        #     mpi.comm.barrier()
+
+        # akey = "structure functions"
+        # self.checkpoint_data[pkey]["analysis"] = akey
+        # if not self.settings[akey].get("skip", False):
+        #     _settings: dict = self.settings[akey].get("settings", {})
+        #     retval: dict = self.model.structure_functions(**_settings)
+        #     mpi.comm.barrier()
+        #     if mpi.root:
+        #         self.model.save_to_hdf5(data={akey: retval}, filename=fn)
+        #     mpi.comm.barrier()
+
+        # akey = "kinetic energy spectra"
+        # self.checkpoint_data[pkey]["analysis"] = akey
+        # if not self.settings[akey].get("skip", False):
+        #     retval: dict = self.model.kinetic_energy_spectra()
+        #     mpi.comm.barrier()
+        #     if mpi.root:
+        #         self.model.save_to_hdf5(data={akey: retval}, filename=fn)
+        #     mpi.comm.barrier()
 
 
+@timer
 def main() -> None:
+
     pipe = Pipeline()
-    pipe.load_settings(settings_path=Path("pipeline_settings.json"))
+    pipe.restart()
 
-    if not pipe.settings["reynolds stress"].get("skip", False):
-        for i in sorted(pipe.model.plt_files["by index"].keys()):
-            pipe.reynolds_stress(index=i)
+    if mpi.root:
+        print("\n-------------\n", pipe.checkpoint_data, "\n-------------\n", flush=True)
 
-    mpi.comm.barrier()
-    if not pipe.settings["smooth window trajectory"].get("skip", False):
+    with FAVAInterruptHandler(external_handler=pipe.checkpoint) as fih:
+        pkey: str = "reynolds stress"
+        if not pipe.settings[pkey].get("skip", False):
+
+            rdict: dict = pipe.checkpoint_data.get(pkey, {})
+            begin: int = rdict.get("index", 0)
+
+            for i in sorted(pipe.model.plt_files["by index"].keys())[begin:]:
+                pipe.reynolds_stress(index=i)
+                pipe.checkpoint_data[pkey] = {"index": i + 1}
+
+        mpi.comm.barrier()
+        # if not pipe.settings["smooth window trajectory"].get("skip", False):
         pipe.smooth_window_trajectory()
 
-    mpi.comm.barrier()
-    if not pipe.settings["extract windows"].get("skip", False):
-        for i in sorted(pipe.model.plt_files["by index"].keys()):
-            pipe.extract_windows(index=i)
+        mpi.comm.barrier()
+        pkey = "extract windows"
+        if not pipe.settings[pkey].get("skip", False):
 
-    mpi.comm.barrier()
-    pipe.refresh_model()
+            rdict: dict = pipe.checkpoint_data.get(pkey, {})
+            begin: int = rdict.get("index", 0)
 
-    mpi.comm.barrier()
-    for i in sorted(pipe.model.uni_files["by index"].keys()):
-        pipe.analyze_uniform_data()
+            for i in sorted(pipe.model.plt_files["by index"].keys())[begin:]:
+                pipe.extract_windows(index=i)
+                pipe.checkpoint_data[pkey] = {"index": i + 1}
 
-    mpi.comm.barrier()
-    if mpi.root:
-        print("DONE!")
+        mpi.comm.barrier()
+        pipe.refresh_model()
+
+        mpi.comm.barrier()
+        pkey = "analyze uniform data"
+
+        rdict: dict = pipe.checkpoint_data.get(pkey, {})
+        if pkey not in pipe.checkpoint_data:
+            pipe.checkpoint_data[pkey] = {}
+        begin: int = rdict.get("index", 0)
+
+        for i in sorted(pipe.model.uni_files["by index"].keys())[begin:]:
+            pipe.analyze_uniform_data(i)
+            pipe.checkpoint_data[pkey]["index"] = i + 1
+
+        mpi.comm.barrier()
+        if mpi.root:
+            print("DONE!")
 
 
 if __name__ == "__main__":
     import sys
 
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        LOGGER.exception("", exc_info=exc)
+        if mpi.procs > 1:
+            mpi.comm.Abort()

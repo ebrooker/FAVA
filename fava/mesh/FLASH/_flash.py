@@ -50,7 +50,7 @@ class FLASH(Structured):
 
     def __init__(self, filename: Optional[str | Path] = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.filename: str | Path | None = filename
+        self.filename = filename
         self._chk_file: bool = False
 
     @classmethod
@@ -67,8 +67,8 @@ class FLASH(Structured):
 
         if not isinstance(filename, (str, Path)):
             msg: str = f"Filename must be passed in as a {str} or {Path}; not {type(filename)}"
-            if mpi.root:
-                logger.error(msg)
+            # if mpi.root:
+            #     logger.error(msg)
             return
 
         _fn: Path = Path(filename)
@@ -95,7 +95,7 @@ class FLASH(Structured):
             field = FIELD_MAPPING.get(name)
 
         if field is None:
-            logger.warning("Cannot find %s in dataset", name)
+            # logger.warning("Cannot find %s in dataset", name)
             return
 
         if field not in self._data:
@@ -1509,6 +1509,7 @@ class FLASH(Structured):
 
         return span, global_alp
 
+    @timer
     def reynolds_stress(self, raxis: int = 0):
         lrefcells: int = 2 ** (self.refine_level_max - 1)
         dims: list[int] = [

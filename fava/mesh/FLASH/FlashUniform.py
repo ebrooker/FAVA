@@ -33,55 +33,12 @@ class FlashUniform(FLASH):
 
     def __init__(self, filename: Optional[str | Path] = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.filename: str | Path | None = filename
+        self.filename = filename
 
     @classmethod
     def is_this_your_mesh(self, filename: str | Path, *args, **kwargs) -> bool:
         fn_types: Tuple[str, str] = ("hdf5_uniform_",)
         return any(fn in filename for fn in fn_types)
-
-    @property
-    def filename(self) -> Path:
-        return self._filename
-
-    @filename.setter
-    def filename(self, filename: str | Path) -> None:
-
-        if not isinstance(filename, (str, Path)):
-            msg: str = f"Filename must be passed in as a {str} or {Path}; not {type(filename)}"
-            if mpi.root:
-                logger.error(msg)
-            return
-
-        _fn: Path = Path(filename)
-
-        if _fn == self._filename:
-            msg: str = f"File already selected: {filename}"
-            return
-
-        self._filename = _fn
-
-    def load_data(self, names: List[str] | None = None) -> None:
-        fields = names if names is not None else self.fields
-        with h5py.File(name=self.filename, mode="r") as f:
-            for field in fields:
-                self._read_variable_data(handle=f, name=f"{field:4s}")
-
-    def data(self, name: str) -> NDArray:
-
-        field: str | None = name
-        if field not in self.fields:
-            field = FIELD_MAPPING.get(name)
-
-        if field is None:
-            logger.warning("Cannot find %s in dataset", name)
-            return
-
-        if field not in self._data:
-            with h5py.File(name=self.filename, mode="r") as f:
-                self._read_variable_data(handle=f, name=f"{field:4s}")
-
-        return self._data[field]
 
     def load(self) -> None:
         """
@@ -131,166 +88,170 @@ class FlashUniform(FLASH):
             logger.exception("Error reading FLASH FILE %s", self.filename, exc_info=True)
             raise RuntimeError from exc
 
-    def fractal_dimension(self, field: str, contour: float) -> dict:
+    def fractal_dimension(self, field: str, contours: list[float] | float = 0.5) -> dict:
+
+        if isinstance(contours, float):
+            _contours: list[float] = [contours]
 
         height, width, depth = self.nCellsVec
 
         self.load_data(names=[field])
 
-        if contour is None:
-            _contour: float = self._data[field].mean()
-        else:
-            _contour: float = contour
+        retval: dict = {}
 
-        shape: tuple[int] = (height, width, depth)
-        dtype = np.int8()
-        win: None | MPI.Win = mpi.reallocate(
-            id="edata",
-            nbytes=dtype.itemsize * np.prod(shape),
-            itemsize=dtype.itemsize,
-        )
-        buffer: MPI.buffer = win.Shared_query(0)[0]
+        for contour in _contours:
 
-        # Initialize the numpy array with float64 buffer
-        edata = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+            contour_key: str = f"{contour}"
+            retval[contour_key] = {}
 
-        # edata: NDArray = np.zeros((height, width, depth), dtype=np.int8)
-        edata[...] = 0
-        edata[self._data[field] == _contour] = 1
+            if contour is None:
+                _contour: float = self._data[field].mean()
+            else:
+                _contour: float = contour
 
-        depth_start: int = 0
-        if depth != 1:
-            depth_start = 1
-        else:
-            depth += 1
+            shape: tuple[int] = (height, width, depth)
+            dtype = np.int8()
+            win: None | MPI.Win = mpi.reallocate(
+                id="edata",
+                nbytes=dtype.itemsize * np.prod(shape),
+                itemsize=dtype.itemsize,
+            )
+            buffer: MPI.buffer = win.Shared_query(0)[0]
 
-        _data: dict = {"contour": _contour}
+            # Initialize the numpy array with float64 buffer
+            edata = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
 
-        lb, ub = mpi.parallel_range(iterations=height - 2)
+            # edata: NDArray = np.zeros((height, width, depth), dtype=np.int8)
+            edata[...] = 0
+            edata[self._data[field] == _contour] = 1
 
-        mpi.comm.barrier()
+            depth_start: int = 0
+            if depth != 1:
+                depth_start = 1
+            else:
+                depth += 1
 
-        for i in list(range(1, height - 1))[lb:ub]:
-            for j, k in itertools.product(range(1, width - 1), range(depth_start, depth - 1)):
+            lb, ub = mpi.parallel_range(iterations=height - 2)
+
+            mpi.comm.barrier()
+
+            for i in list(range(1, height - 1))[lb:ub]:
+                for j, k in itertools.product(range(1, width - 1), range(depth_start, depth - 1)):
+                    # for i, j, k in indices[lb:ub]:
+                    val = self._data[field][i, j, k]
+
+                    if val < _contour:
+                        hidx = _contour - val
+
+                        if self._data[field][i + 1, j, k] > _contour:
+                            if int(hidx / (self._data[field][i + 1, j, k] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i + 1, j, k] = 1
+
+                        if self._data[field][i, j + 1, k] > _contour:
+                            if int(hidx / (self._data[field][i, j + 1, k] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i, j + 1, k] = 1
+
+                        if self._data[field][i, j - 1, k] > _contour:
+                            if int(hidx / (self._data[field][i, j - 1, k] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i, j - 1, k] = 1
+
+                        if self._data[field][i - 1, j, k] > _contour:
+                            if int(hidx / (self._data[field][i - 1, j, k] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i - 1, j, k] = 1
+
+                        if self._data[field][i, j, k + 1] > _contour:
+                            if int(hidx / (self._data[field][i, j, k + 1] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i, j, k + 1] = 1
+
+                        if self._data[field][i, j, k - 1] > _contour:
+                            if int(hidx / (self._data[field][i, j, k - 1] - val)) == 0:
+                                edata[i, j, k] = 1
+                            else:
+                                edata[i, j, k - 1] = 1
+
+            lowest_level: int = 0
+            largest_dim: int = min(height, width)
+            if depth > 1:
+                largest_dim = min(largest_dim, depth)
+
+            flength: int = int(log2(largest_dim) - lowest_level + 1)
+
+            result: NDArray = np.zeros((flength, 2))
+
+            for level in range(lowest_level, flength + lowest_level):
+                bdim = bdim_k = int(2**level)
+
+                if depth == 1:
+                    bdim_k = 1
+
+                nfilled: int = 0
+
+                # iterations: int = int(
+                #     len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
+                # )
+                lb, ub = mpi.parallel_range(iterations=len(range(0, height, bdim)))
+
+                # shape: tuple[int] = (iterations, 3)
+                # dtype = np.int16()
+                # win: None | MPI.Win = mpi.reallocate(
+                #     id="indices",
+                #     nbytes=dtype.itemsize * np.prod(shape),
+                #     itemsize=dtype.itemsize,
+                # )
+                # buffer: MPI.buffer = win.Shared_query(0)[0]
+
+                # # Initialize the numpy array with float64 buffer
+                # indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+
+                # if mpi.root:
+                #     indices[...] = list(
+                #         itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
+                #     )
+
+                # mpi.comm.barrier()
                 # for i, j, k in indices[lb:ub]:
-                val = self._data[field][i, j, k]
+                for i in list(range(0, height, bdim))[lb:ub]:
+                    for j, k in itertools.product(range(0, width, bdim), range(0, depth, bdim_k)):
+                        for bx, by, bz in itertools.product(
+                            range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
+                        ):
+                            if edata[bx, by, bz] > 0:
+                                nfilled += 1
+                                break
 
-                if val < _contour:
-                    hidx = _contour - val
+                nfilled_global: int = mpi.comm.allreduce(nfilled, op=MPI.SUM)
+                result[level, 0] = flength - level - 1
+                result[level, 1] = np.log2(nfilled_global)
 
-                    if self._data[field][i + 1, j, k] > _contour:
-                        if int(hidx / (self._data[field][i + 1, j, k] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i + 1, j, k] = 1
+            mpi.deallocate(id="indices")
+            mpi.deallocate(id="edata")
+            filled_boxes = 2 ** result[:, 1]
+            cum_frac_dim: float = np.sum(np.log2(filled_boxes[:-1] / filled_boxes[1:]))
+            avg_frac_dim: float = cum_frac_dim / (filled_boxes.size - 1.0)
 
-                    if self._data[field][i, j + 1, k] > _contour:
-                        if int(hidx / (self._data[field][i, j + 1, k] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i, j + 1, k] = 1
+            mean: NDArray = np.mean(result, axis=0)
+            std: NDArray = np.std(result, axis=0)
+            rval: float = np.sum((result[:, 0] - mean[0]) * (result[:, 1] - mean[1])) / (
+                np.prod(std) * result.shape[0]
+            )
+            slope: float = rval * std[1] / std[0]
+            regress: NDArray = np.array([slope, rval**2, mean[1] - slope * mean[0]])
 
-                    if self._data[field][i, j - 1, k] > _contour:
-                        if int(hidx / (self._data[field][i, j - 1, k] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i, j - 1, k] = 1
-
-                    if self._data[field][i - 1, j, k] > _contour:
-                        if int(hidx / (self._data[field][i - 1, j, k] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i - 1, j, k] = 1
-
-                    if self._data[field][i, j, k + 1] > _contour:
-                        if int(hidx / (self._data[field][i, j, k + 1] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i, j, k + 1] = 1
-
-                    if self._data[field][i, j, k - 1] > _contour:
-                        if int(hidx / (self._data[field][i, j, k - 1] - val)) == 0:
-                            edata[i, j, k] = 1
-                        else:
-                            edata[i, j, k - 1] = 1
-
-        lowest_level: int = 0
-        largest_dim: int = min(height, width)
-        if depth > 1:
-            largest_dim = min(largest_dim, depth)
-
-        flength: int = int(log2(largest_dim) - lowest_level + 1)
-
-        result: NDArray = np.zeros((flength, 2))
-
-        for level in range(lowest_level, flength + lowest_level):
-            bdim = bdim_k = int(2**level)
-
-            if depth == 1:
-                bdim_k = 1
-
-            nfilled: int = 0
-
-            # iterations: int = int(
-            #     len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
-            # )
-            lb, ub = mpi.parallel_range(iterations=len(range(0, height, bdim)))
-
-            # shape: tuple[int] = (iterations, 3)
-            # dtype = np.int16()
-            # win: None | MPI.Win = mpi.reallocate(
-            #     id="indices",
-            #     nbytes=dtype.itemsize * np.prod(shape),
-            #     itemsize=dtype.itemsize,
-            # )
-            # buffer: MPI.buffer = win.Shared_query(0)[0]
-
-            # # Initialize the numpy array with float64 buffer
-            # indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
-
-            # if mpi.root:
-            #     indices[...] = list(
-            #         itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
-            #     )
-
-            # mpi.comm.barrier()
-            # for i, j, k in indices[lb:ub]:
-            for i in list(range(0, height, bdim))[lb:ub]:
-                for j, k in itertools.product(range(0, width, bdim), range(0, depth, bdim_k)):
-                    for bx, by, bz in itertools.product(
-                        range(i, i + bdim), range(j, j + bdim), range(k, k + bdim_k)
-                    ):
-                        if edata[bx, by, bz] > 0:
-                            nfilled += 1
-                            break
-
-            nfilled_global: int = mpi.comm.allreduce(nfilled, op=MPI.SUM)
-            result[level, 0] = flength - level - 1
-            result[level, 1] = np.log2(nfilled_global)
-
-        mpi.deallocate(id="indices")
-        mpi.deallocate(id="edata")
-        filled_boxes = 2 ** result[:, 1]
-        cum_frac_dim: float = np.sum(np.log2(filled_boxes[:-1] / filled_boxes[1:]))
-        avg_frac_dim: float = cum_frac_dim / (filled_boxes.size - 1.0)
-
-        mean: NDArray = np.mean(result, axis=0)
-        std: NDArray = np.std(result, axis=0)
-        rval: float = np.sum((result[:, 0] - mean[0]) * (result[:, 1] - mean[1])) / (
-            np.prod(std) * result.shape[0]
-        )
-        slope: float = rval * std[1] / std[0]
-        regress: NDArray = np.array([slope, rval**2, mean[1] - slope * mean[0]])
-
-        _data["average fractal dimension"] = avg_frac_dim
-        _data["slope"] = regress[0]
-        _data["R2"] = regress[1]
-        _data["curve"] = regress[2]
-
-        if mpi.root:
-            print(type(_data["average fractal dimension"]), type(_data["slope"]), type(_data["R2"]))
-
-        return _data
+            retval[contour_key]["average fractal dimension"] = avg_frac_dim
+            retval[contour_key]["slope"] = regress[0]
+            retval[contour_key]["R2"] = regress[1]
+            retval[contour_key]["curve"] = regress[2]
+        return {field: retval}
 
     def kinetic_energy_spectra(self) -> dict[str, NDArray | float]:
         """
@@ -396,73 +357,119 @@ class FlashUniform(FLASH):
 
         vsfs: dict[str, dict[str, NDArray] | NDArray] = {"transverse": {}, "longitudinal": {}}
 
-        for order in range(1, 11):
-            pt_coords: NDArray = np.empty((num_seps, 2, num_points, self.ndim))
-            vel_comps: NDArray = np.empty((num_seps, num_points, self.ndim))
+        shape: tuple[int] = (num_seps, num_points, self.ndim, 2)
+        dtype = np.float64()
+        win: None | MPI.Win = mpi.reallocate(
+            id="pt_coords",
+            nbytes=dtype.itemsize * np.prod(shape),
+            itemsize=dtype.itemsize,
+        )
+        buffer: MPI.buffer = win.Shared_query(0)[0]
 
-            pt_rand_1: NDArray = np.empty(num_points, self.ndim)
-            pt_rand_2: NDArray = np.empty(num_points, self.ndim)
-            for i, sep in enumerate(separations):
+        # Initialize the numpy array with float64 buffer
+        pt_coords = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+
+        shape: tuple[int] = (num_seps, num_points, self.ndim)
+        dtype = np.float64()
+        win: None | MPI.Win = mpi.reallocate(
+            id="vel_comps",
+            nbytes=dtype.itemsize * np.prod(shape),
+            itemsize=dtype.itemsize,
+        )
+        buffer: MPI.buffer = win.Shared_query(0)[0]
+
+        # Initialize the numpy array with float64 buffer
+        vel_comps = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
+
+        for order in range(1, 11):
+            mpi.comm.barrier()
+
+            pt_coords[...] = 0.0
+            vel_comps[...] = 0.0
+            # pt_coords: NDArray = np.empty((num_seps, num_points, self.ndim, 2))
+            # vel_comps: NDArray = np.empty((num_seps, num_points, self.ndim))
+
+            pt_rand_1: NDArray = np.empty((num_points, self.ndim))
+            pt_rand_2: NDArray = np.empty((num_points, self.ndim))
+            lb, ub = mpi.parallel_range(iterations=num_seps)
+            # print("\t", mpi.id, lb, ub, flush=True)
+            # for i, sep in enumerate(separations[lb:ub]):
+            for i in range(lb, ub):
+
+                # np.random.seed(mpi.id)
+                sep: float = separations[i]
+
                 pt_rand_1[:, :] = (
-                    np.random.random((num_points, self.ndim)) * np.diff(self.domain_bounds, axis=1).ravel()
+                    np.random.random(pt_rand_1.shape) * np.diff(self.domain_bounds, axis=1).ravel()
                     + self.domain_bounds[:, 0].ravel()
                 )
 
                 phi: NDArray = 2.0 * np.pi * np.random.random(num_points)
                 theta: NDArray = np.arccos(2.0 * np.random.random(num_points) - 1.0)
 
-                pt_rand_2[:, 0] = pt_rand_1[:, 0] + separations * np.sin(theta) * np.cos(phi)
-                pt_rand_2[:, 1] = pt_rand_1[:, 1] + separations * np.sin(theta) * np.sin(phi)
-                pt_rand_2[:, 2] = pt_rand_1[:, 2] + separations * np.cos(theta)
+                pt_rand_2[:, 0] = pt_rand_1[:, 0] + sep * np.sin(theta) * np.cos(phi)
+                pt_rand_2[:, 1] = pt_rand_1[:, 1] + sep * np.sin(theta) * np.sin(phi)
+                pt_rand_2[:, 2] = pt_rand_1[:, 2] + sep * np.cos(theta)
 
-                # # X-direction
-                # while np.any(pt_rand_2[:, 0] > self.xmax):
-                #     pt_rand_2[pt_rand_2[:, 0] > self.xmax, 0] += self.xmin - self.xmax
+                # X-direction
+                while np.any(pt_rand_2[:, 0] > self.xmax):
+                    pt_rand_2[pt_rand_2[:, 0] > self.xmax, 0] += self.xmin - self.xmax
 
-                # while np.any(pt_rand_2[:, 0] < self.xmin):
-                #     pt_rand_2[pt_rand_2[:, 0] < self.xmax, 0] += self.xmax - self.xmin
+                while np.any(pt_rand_2[:, 0] < self.xmin):
+                    pt_rand_2[pt_rand_2[:, 0] < self.xmin, 0] += self.xmax - self.xmin
 
-                # # Y-direction
-                # while np.any(pt_rand_2[:, 1] > self.ymax):
-                #     pt_rand_2[pt_rand_2[:, 1] > self.ymax, 1] += self.ymin - self.ymax
+                # Y-direction
+                while np.any(pt_rand_2[:, 1] > self.ymax):
+                    pt_rand_2[pt_rand_2[:, 1] > self.ymax, 1] += self.ymin - self.ymax
 
-                # while np.any(pt_rand_2[:, 1] < self.ymin):
-                #     pt_rand_2[pt_rand_2[:, 1] < self.ymax, 1] += self.ymax - self.ymin
+                while np.any(pt_rand_2[:, 1] < self.ymin):
+                    pt_rand_2[pt_rand_2[:, 1] < self.ymin, 1] += self.ymax - self.ymin
 
-                # # Z-direction
-                # while np.any(pt_rand_2[:, 2] > self.zmax):
-                #     pt_rand_2[pt_rand_2[:, 2] > self.zmax, 2] += self.zmin - self.zmax
+                # Z-direction
+                while np.any(pt_rand_2[:, 2] > self.zmax):
+                    pt_rand_2[pt_rand_2[:, 2] > self.zmax, 2] += self.zmin - self.zmax
 
-                # while np.any(pt_rand_2[:, 2] < self.zmin):
-                #     pt_rand_2[pt_rand_2[:, 2] < self.zmax, 2] += self.zmax - self.zmin
+                while np.any(pt_rand_2[:, 2] < self.zmin):
+                    pt_rand_2[pt_rand_2[:, 2] < self.zmin, 2] += self.zmax - self.zmin
 
                 # Get velocity components
-                cell_size: NDArray = np.diff(self.domain_bounds)
+                cell_size: NDArray = np.diff(self.domain_bounds, axis=1).flatten() / self.nCellsVec
 
                 pt1: NDArray = np.empty(pt_rand_1.shape, dtype=int)
                 pt2: NDArray = np.empty(pt_rand_2.shape, dtype=int)
 
                 for j in range(self.ndim):
-                    pt1[:, j] = np.mod(
-                        np.floor((pt_rand_1[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
-                        self.nCellsVec[j],
+                    pt1[:, j] = np.floor((pt_rand_1[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(
+                        int
                     )
-                    pt2[:, j] = np.mod(
-                        np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
-                        self.nCellsVec[j],
+                    pt2[:, j] = np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(
+                        int
                     )
+                    # pt1[:, j] = np.mod(
+                    #     np.floor((pt_rand_1[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
+                    #     self.nCellsVec[j],
+                    # )
+                    # pt2[:, j] = np.mod(
+                    #     np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
+                    #     self.nCellsVec[j],
+                    # )
 
+                # print(pt1)
+                # print(pt2)
                 for j, velocity in enumerate(vels):
                     vel_comps[i, :, j] = (
                         self.data(velocity)[pt2[:, 0], pt2[:, 1], pt2[:, 2]]
                         - self.data(velocity)[pt1[:, 0], pt1[:, 1], pt1[:, 2]]
                     )
 
-                pt_coords[i, 0, ...] = pt_rand_1
-                pt_coords[i, 1, ...] = pt_rand_2
+                pt_coords[i, ..., 0] = pt_rand_1[...]
+                pt_coords[i, ..., 1] = pt_rand_2[...]
 
-            sep_vec: NDArray = pt_coords[:, 1, :, :] - pt_coords[:, 0, :, :]
+            mpi.comm.barrier()
+            sep_vec: NDArray = pt_coords[..., 1] - pt_coords[..., 0]
 
+            # print("sepvec", sep_vec.min(), sep_vec.max(), flush=True)
+            # print("vel_comps", vel_comps.min(), vel_comps.max(), flush=True)
             rhat: NDArray = np.empty_like(sep_vec)
 
             if anistropic:
@@ -483,11 +490,15 @@ class FlashUniform(FLASH):
             trans_comp: NDArray = np.sqrt(np.sum((vel_comps - long_dvel) ** 2, axis=2))
             trans_vsfs: NDArray = np.sum(trans_comp**order, axis=1) / float(num_points)
 
+            # if mpi.root:
+            #     print(order, long_vsfs.min(), long_vsfs.max(), trans_vsfs.min(), trans_vsfs.max(), flush=True)
             vsfs["transverse"][f"{order}"] = np.copy(trans_vsfs)
             vsfs["longitudinal"][f"{order}"] = np.copy(long_vsfs)
             vsfs["separations"] = separations
 
-            return vsfs
+        mpi.deallocate(id="pt_coords")
+        mpi.deallocate(id="vel_comps")
+        return vsfs
 
     def mass_fraction(self, masks: dict[str, NDArray] | None = None) -> NDArray:
 

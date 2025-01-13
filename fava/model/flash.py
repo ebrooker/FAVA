@@ -106,46 +106,48 @@ class FLASH(Model):
             case FileType.CHK:
                 assert nkey in self.chk_files[fkey]
                 file_ = self.chk_files[fkey][nkey]
-                self.mesh = FlashAMR(file_)
+                self.mesh = FlashAMR(filename=file_)
                 self.mesh.load(*args, **kwargs)
 
             case FileType.PLT:
                 assert nkey in self.plt_files[fkey]
                 file_ = self.plt_files[fkey][nkey]
-                self.mesh = FlashAMR(file_)
+                self.mesh = FlashAMR(filename=file_)
                 self.mesh.load(*args, **kwargs)
 
             case FileType.PRT:
                 assert nkey in self.prt_files[fkey]
                 file_ = self.prt_files[fkey][nkey]
-                self.particles = FlashParticles(file_)
+                self.particles = FlashParticles(filename=file_)
                 self.particles._load_particles(*args, **kwargs)
 
             case FileType.CHK_PRT:
                 assert nkey in self.chk_files[fkey]
                 file_ = self.chk_files[fkey][nkey]
-                self.mesh = FlashAMR(file_)
+                self.mesh = FlashAMR(filename=file_)
                 self.mesh.load(*args, **kwargs)
-                self.particles = FlashParticles(file_)
+                self.particles = FlashParticles(filename=file_)
                 self.particles._load_particles(*args, **kwargs)
 
             case FileType.PLT_PRT:
                 assert nkey in self.plt_files[fkey]
                 file_ = self.plt_files[fkey][nkey]
 
-                self.mesh = FlashAMR(file_)
+                self.mesh = FlashAMR(filename=file_)
                 self.mesh.load(*args, **kwargs)
 
                 assert nkey in self.prt_files[fkey]
-                pfile_ = self.prt_files[fkey][nkey]
+                pfile_: Path = self.prt_files[fkey][nkey]
 
-                self.particles = FlashParticles(pfile_)
+                self.particles = FlashParticles(filename=pfile_)
                 self.particles._load_particles(*args, **kwargs)
 
             case FileType.UNI:
                 assert nkey in self.uni_files[fkey]
-                file_ = self.uni_files[fkey][nkey]
-                self.mesh = FlashUniform(file_)
+                file_: Path = self.uni_files[fkey][nkey]
+                if mpi.root:
+                    print(file_)
+                self.mesh = FlashUniform(filename=file_)
                 self.mesh.load(*args, **kwargs)
 
     def convert_filename_type(self, current_filetype: FileType | str, new_filetype: FileType | str) -> str:
@@ -160,6 +162,8 @@ class FLASH(Model):
         )
 
         current_stem: str = self.mesh.filename.stem
-        new_stem: str = current_stem.replace(curr_ftype_.value, new_ftype_.value)
+        new_stem: str = current_stem.replace(
+            FileSubStem[curr_ftype_.name].value, FileSubStem[new_ftype_.name].value
+        )
 
         return self.mesh.filename.with_stem(new_stem)

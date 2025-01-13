@@ -104,7 +104,7 @@ class Model:
         """
         pass
 
-    def load(self, filenumber: int = 0):
+    def load(self, filenumber: int = 0) -> None:
         """
         if len(self.files) <= filenumber:
             raise IndexError(f"Filenumber {filenumber} is out of bounds for filelist of length {len(self.files)}")
@@ -171,7 +171,7 @@ class Model:
                     handle.create_dataset(key, data=values.copy())
 
                 except Exception as exc1:
-                    print(exc1)
+                    # print(exc1)
                     try:
                         _ = copy.copy(values)
                         if overwrite:

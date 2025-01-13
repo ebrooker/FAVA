@@ -1,3 +1,8 @@
+import signal
+import sys
+from pathlib import Path
+from typing import Self
+
 from mpi4py import MPI
 
 
@@ -75,3 +80,64 @@ class FAVA_MPI:
 
 
 mpi = FAVA_MPI()
+
+
+class FAVAInterruptHandler:
+
+    signals_caught: list[signal.Signals] = [signal.SIGINT, signal.SIGTERM]
+
+    def __init__(self, external_handler=None, *args, **kwargs) -> None:
+        self.external_handler = external_handler
+
+    def __enter__(self) -> Self | None:
+        self.interrupted: bool = False
+        self.released: bool = False
+        self.signal: None | signal.Signals = None
+
+        self.original_handlers: dict[signal.Signals, signal._HANDLER] = {
+            sig: signal.getsignal(sig) for sig in self.signals_caught
+        }
+
+        def handler(signum, frame) -> None:
+            match signum:
+                case signal.SIGINT:
+                    message: str = "Caught SIGINT..."
+                case signal.SIGTERM:
+                    message = "Caught SIGTERM..."
+                case _:
+                    return
+
+            if mpi.root:
+                print(message, flush=True)
+
+            self.signal = signum
+            self.release()
+            self.interrupted = True
+
+        for sig in self.signals_caught:
+            signal.signal(sig, handler)
+
+        return self
+
+    def __exit__(self, type, value, tb) -> None:
+        self.release()
+
+    def release(self) -> bool:
+        if self.released:
+            return False
+
+        if self.external_handler is not None:
+            if mpi.root:
+                print("Calling external handler", flush=True)
+            self.external_handler()
+
+        original_handler = (
+            self.original_handlers[signal.SIGTERM]
+            if self.signal not in self.original_handlers
+            else self.original_handlers[self.signal]
+        )
+        if self.signal is not None:
+            signal.signal(self.signal, self.original_handlers.get(self.signal))
+
+        self.released = True
+        return True
