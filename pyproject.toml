@@ -3,15 +3,13 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "FAVA"
-description = "Fluids Advanced Variable Analysis (FAVA) designed for analyzing computational fluid dynamics data."
-
+name = "fava"
+description = "Fluid-Advanced Variable Analysis"
 authors = [{name = "Ezra Brooker", email = "ebrooker@fsu.edu"},]
 license = {text = "MIT"}
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["fava", "flash", "cfd"]
-
 
 classifiers=[
     "Development Status :: 2 - Pre-Alpha",
@@ -25,17 +23,28 @@ classifiers=[
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+
 dependencies = [
-    "requests",
-    'importlib-metadata; python_version<"3.10"',
+    "h5py>=3.12.1",
+    "llvmlite>=0.44.0",
+    "matplotlib>=3.10.0",
+    "mpi4py>=4.0.2",
+    "mpi4py-fft>=2.0.6",
+    "numba==0.61.0",
+    "numpy>=2.1.3",
+    "scipy>=1.15.1",
 ]
+
 dynamic = ["version"]
 
-[project.optional-dependencies]
+[tool.setuptools.packages.find]
+where = ["./"]  # list of folders that contain the packages (["."] by default)
+include = ["fava*"]  # package names should match these glob patterns (["*"] by default)
+exclude = ["fava.tests*"]  # exclude packages matching these glob patterns (empty by default)
+
+[tool.setuptools.dynamic]
+version = {attr = "fava.__version__.__version__"} 
 
 
-[project.scripts]
-
-
-# ... other project metadata fields as listed in:
-#     https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+[tool.uv]
+constraint-dependencies = ["llvm>0.43.0"]

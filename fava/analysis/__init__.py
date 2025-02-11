@@ -8,3 +8,6 @@ from fava.analysis.auto_correlations import eulerian_autocorrelation, lagrangian
 from fava.analysis.fractal_dimension import fractal_dimension
 from fava.analysis.kinetic_energy_spectra import kinetic_energy_spectra
 from fava.analysis.structure_functions import structure_functions
+from fava.analysis.pdf1d import pdf1d
+from fava.analysis.pdf2d import pdf2d
+from fava.analysis.mass_sum import mass_sum
