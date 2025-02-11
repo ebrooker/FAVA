@@ -35,6 +35,27 @@ It should be noted that the methods implemented for a <flash> type object are de
 
 One can also create a <mesh>-type object for different types of FLASH data, such as AMR, Uniform, and Particle (partial implementation) data. (These mesh objects are what get called internally by the above Reynolds stress example with the <flash> model object).
 
+.. code-block:: Python
+
+
+    from fava.mesh.FLASH import FLASH as FlashAMR
+    from fava.mesh.FLASH import FlashUniform
+    
+    amr_file = "path/to/AMR-based/FLASH/datafile/rtflame_hdf5_plt_cnt_0000"
+    uni_file = "path/to/uniform-like/FLASH/datafile/rtflame_hdf5_uniform_0000"
+
+    amr = FlashAMR(amr_file)
+    amr.load()
+
+    # Subdomain coordinates
+    sd = [[0.0, 32.0e5], [0.0, 32.0e5], [0.0, 32.0e5]]
+    fields = ["dens", "pressure", "temperature"]
+    amr.from_amr(subdomain_coords=sd, fields=fields, filename=uni_file)
+
+    uni = FlashUniform(uni_file)
+    uni.load()
+    uni.kinetic_energy_spectra()
+
 
 Features
 --------
