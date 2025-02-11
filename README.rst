@@ -14,7 +14,7 @@ One can create a `flash` type object that takes in the directory path to FLASH s
 
 .. code-block:: Python
 
-    
+
     import fava
     from pathlib import Path
 
@@ -22,7 +22,17 @@ One can create a `flash` type object that takes in the directory path to FLASH s
     model = fava.flash(model_dir)
 
 
-The program will auto-detect the presence of checkpoint, plot, and particle files, organizing them in a class attribute master dictionary by indexing value and output file number (both sets are organized by `chk`, `plt`, and `part` files). Additionally, the code will identify existing `uniform` and `analysis` type files designed for use with FLASH type data in FAVA.
+The program will auto-detect the presence of checkpoint, plot, and particle files, organizing them in a class attribute master dictionary by indexing value and output file number (both sets are organized by `chk`, `plt`, and `part` files). Additionally, the code will identify existing `uniform` and `analysis` type files designed for use with FLASH type data in FAVA. These can be iterated over and compute various quantities such as the Reynolds stress profile over a given axis as follows:
+
+.. code-block:: Python
+
+
+    model = fava.flash(model_dir)
+    for i in sorted(pipe.model.plt_files["by index"].keys())
+        model.load(file_index=i, file_type="plt")
+        model.reynolds_stress(axis=0)  # axis=0 --> x in Cartesian
+
+
 
 
 Features
