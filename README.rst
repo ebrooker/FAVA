@@ -49,8 +49,14 @@ One can also create a <mesh>-type object for different types of FLASH data, such
 
     # Subdomain coordinates
     sd = [[0.0, 32.0e5], [0.0, 32.0e5], [0.0, 32.0e5]]
+
+    # Fields to save to new uniformly refined data file
     fields = ["dens", "pressure", "temperature"]
-    amr.from_amr(subdomain_coords=sd, fields=fields, filename=uni_file)
+
+    # Generates a uniformly data file from existing AMR mesh, subdomain 
+    # coordinates can be provided to chop down the domain, and refine refine_level
+    # of -1 indicates to refine to finest possible level
+    amr.from_amr(subdomain_coords=sd, fields=fields, filename=uni_file, refine_level=-1)
 
     uni = FlashUniform(uni_file)
     uni.load()
