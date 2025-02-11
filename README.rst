@@ -10,7 +10,7 @@ Fluids Advanced Variable Analysis: package for performing advanced analysis calc
 Usage
 -----
 
-One can create a `flash` type object that takes in the directory path to FLASH structured HDF5 data files. This will create an interface to iteratively loading and analyzing a set of data files, enabling easier development and configuration of analysis pipelines.
+One can create a <flash> type object that takes in the directory path to FLASH structured HDF5 data files. This will create an interface to iteratively loading and analyzing a set of data files, enabling easier development and configuration of analysis pipelines.
 
 .. code-block:: Python
 
@@ -31,7 +31,9 @@ The program will auto-detect the presence of checkpoint, plot, and particle file
         model.load(file_index=i, file_type="plt")
         model.reynolds_stress(axis=0)  # axis=0 --> x in Cartesian
 
-It should be noted that the methods implemented for a <model> type object are defined in the fava/analysis and serve to be wrapper calls to the specific implementations for a given mesh-type.
+It should be noted that the methods implemented for a <flash> type object are defined in the fava/analysis and serve to be wrapper calls to the specific implementations for a given mesh-type. These wrapper methods are registered to a generic <model> class that the <flash> class inherits from.
+
+One can also create a <mesh>-type object for different types of FLASH data, such as AMR, Uniform, and Particle (partial implementation) data. (These mesh objects are what get called internally by the above Reynolds stress example with the <flash> model object).
 
 
 Features
