@@ -27,12 +27,11 @@ The program will auto-detect the presence of checkpoint, plot, and particle file
 .. code-block:: Python
 
 
-    model = fava.flash(model_dir)
     for i in sorted(pipe.model.plt_files["by index"].keys())
         model.load(file_index=i, file_type="plt")
         model.reynolds_stress(axis=0)  # axis=0 --> x in Cartesian
 
-
+It should be noted that the methods implemented for a <model> type object are defined in the fava/analysis and serve to be wrapper calls to the specific implementations for a given mesh-type.
 
 
 Features
