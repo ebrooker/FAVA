@@ -12,7 +12,7 @@ Usage
 
 One can create a `flash` type object that takes in the directory path to FLASH structured HDF5 data files. This will create an interface to iteratively loading and analyzing a set of data files, enabling easier development and configuration of analysis pipelines.
 
-```
+.. code-block:: Python
 import fava
 from pathlib import Path
 
