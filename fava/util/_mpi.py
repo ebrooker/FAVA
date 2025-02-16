@@ -1,6 +1,6 @@
 import signal
-import sys
-from pathlib import Path
+# import sys
+# from pathlib import Path
 from typing import Self
 
 from mpi4py import MPI
@@ -131,11 +131,6 @@ class FAVAInterruptHandler:
                 print("Calling external handler", flush=True)
             self.external_handler()
 
-        original_handler = (
-            self.original_handlers[signal.SIGTERM]
-            if self.signal not in self.original_handlers
-            else self.original_handlers[self.signal]
-        )
         if self.signal is not None:
             signal.signal(self.signal, self.original_handlers.get(self.signal))
 
