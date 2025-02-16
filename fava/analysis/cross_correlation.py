@@ -2,11 +2,9 @@
 import numpy as np
 
 from math import floor
-from pathlib import Path
-from typing import List, Sequence
+from typing import List
 
 from fava.model import Model
-from fava.util import timer
 
 @Model.register_analysis(use_timer=True)
 def cross_correlation(self, spatial_field: str, temporal_field: str, sample_points: np.ndarray, poi_idx: int, *args, **kwargs):
@@ -90,26 +88,8 @@ def cross_correlation(self, spatial_field: str, temporal_field: str, sample_poin
             temp_data[i] = self.particles.data[tvar][temp_tags]
             samp_data[i,:] = self.particles.data[svar][samp_tags]
 
-        # # Reverse iterate over first half of files; this works well enough if using langrangian-tracked
-        # # data points, e.e.g. particles data structure in FLASH
-        # for i in reversed(range(imid)):
-        #     self.load(file_index=i, fields=fields, *args, **kwargs)
-        #     print(f"{mesh.time=:.4f}")
-        #     temp_data[i] = self.mesh.part_data[tvar][np.where(self.mesh.part_data[tagvar] == poi_idx)[0]]
-        #     tags = np.squeeze(np.array([np.where(self.mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
-        #     samp_data[i,:] = self.mesh.part_data[svar][tags]
-        #     Rts[:] += temp_data[i+1] * samp_data[i,:]
-
-        # for i in range(imid,nfiles):
-        #     self.load(file_index=i, fields=fields, *args, **kwargs)
-        #     print(f"{mesh.time=:.4f}")
-        #     temp_data[i] = self.mesh.part_data[tvar][np.where(self.mesh.part_data[tagvar] == poi_idx)[0]]
-        #     tags = np.squeeze(np.array([np.where(self.mesh.part_data[tagvar] == smp)[0] for smp in sample_points], dtype=int))
-        #     samp_data[i,:] = self.mesh.part_data[svar][tags]
-        #     Rts[:] += temp_data[i] * samp_data[i-1,:]
-
     else:
-        ...
+        return None
 
     # Compute mean for spatial and temporal measures
     smean = samp_data[:-1,...].mean(axis=0)

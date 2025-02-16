@@ -1,6 +1,5 @@
 import logging
 import itertools
-import sys
 import time
 from enum import Enum
 from pathlib import Path
@@ -54,7 +53,7 @@ class FLASH(Structured):
         self._chk_file: bool = False
 
     @classmethod
-    def is_this_your_mesh(self, filename: str | Path, *args, **kwargs) -> bool:
+    def is_this_your_mesh(cls, filename: str | Path, *args, **kwargs) -> bool:
         fn_types: Tuple[str, str] = ("hdf5_chk_", "hdf5_plt_cnt_")
         return any(fn in filename for fn in fn_types)
 
@@ -67,8 +66,8 @@ class FLASH(Structured):
 
         if not isinstance(filename, (str, Path)):
             msg: str = f"Filename must be passed in as a {str} or {Path}; not {type(filename)}"
-            # if mpi.root:
-            #     logger.error(msg)
+            if mpi.root:
+                logger.error(msg)
             return
 
         _fn: Path = Path(filename)
@@ -88,14 +87,14 @@ class FLASH(Structured):
             for field in fields:
                 self._read_variable_data(handle=f, name=f"{field:4s}")
 
-    def data(self, name: str) -> NDArray:
+    def data(self, name: str) -> NDArray|None:
 
         field: str | None = name
         if field not in self.fields:
             field = FIELD_MAPPING.get(name)
 
         if field is None:
-            # logger.warning("Cannot find %s in dataset", name)
+            logger.warning("Cannot find %s in dataset", name)
             return
 
         if field not in self._data:
@@ -577,8 +576,6 @@ class FLASH(Structured):
             del self.cell_volume_min
         if "cell_volume_max" in self.__dict__:
             del self.cell_volume_max
-        # if "cell_volumes" in self.__dict__:
-        #     del self.cell_volumes
         if "refine_level_max" in self.__dict__:
             del self.refine_level_max
 
@@ -858,6 +855,8 @@ class FLASH(Structured):
                 val: NDArray = self.data(field)[blockID, point[0], point[1]]
             case 3:
                 val: NDArray = self.data(field)[blockID, point[0], point[1], point[2]]
+            case _:
+                raise ValueError("Dimensionality must be 1D, 2D, or 3D")
         return val
 
     def get_coord_index(self, point, block_list: List[int]) -> Tuple[List, int]:
@@ -1155,7 +1154,6 @@ class FLASH(Structured):
                     valid_cells[1] -= 1
 
         # Left off at line 615 in Lavaflow Flash Uniform refinement .cxx
-        leaves: int = 0
         leaf_IDs: List[int] = []
         if ref_lev > -1:
             local_BCIDs[:, self.ndim : MESH_MDIM, 1] = 0
@@ -1172,7 +1170,6 @@ class FLASH(Structured):
                     subdomain_flag=subdomain_flag,
                 ):
                     leaf_IDs.append(lb)
-                    leaves += 1
 
         else:
             local_BCIDs[:, self.ndim : MESH_MDIM, 1] = 0
@@ -1183,7 +1180,6 @@ class FLASH(Structured):
                     subdomain_flag=subdomain_flag,
                 ):
                     leaf_IDs.append(lb)
-                    leaves += 1
 
         if subdomain_flag:
             refdom_bound_box = grid_bound_box[:, :1] + subdomain_BCIDs * grid_delta
@@ -1201,8 +1197,6 @@ class FLASH(Structured):
         leaf_IDs = []
         for _leaf_list in _leaf_IDs:
             leaf_IDs += _leaf_list
-
-        leaves = len(leaf_IDs)
 
         if mpi.root:
             print(f"{total_cells=}", flush=True)
