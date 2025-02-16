@@ -1,5 +1,5 @@
 
-from abc import ABC, abstractmethod
+from abc import ABC
 
 class Mesh(ABC):
     """Base Mesh class that implements the generic framework for grid meshes"""
@@ -8,7 +8,7 @@ class Mesh(ABC):
         super().__init__(*args, **kwargs)  # forwards all unused arguments
 
     @classmethod
-    def is_this_your_mesh(self, *args, **kwargs) -> bool:
+    def is_this_your_mesh(cls, *args, **kwargs) -> bool:
         return False
 
     @property
