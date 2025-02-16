@@ -20,7 +20,7 @@ def eulerian_autocorrelation(self, nsamples: int, fields: Sequence[str], *args, 
         msg = "Eulerian autocorrelation requires an Eulerian mesh!"
         if self.particles is not None:
             msg += "Particles were loaded, possibly by mistake. Lagrangian autocorrelation uses particles!"
-        raise(msg)
+        raise RuntimeError(msg)
 
     lref_cells = 2**(self.mesh.lrefmax-1)
 
@@ -40,7 +40,7 @@ def eulerian_autocorrelation(self, nsamples: int, fields: Sequence[str], *args, 
     for i in range(nfiles):
         try:
             self.load(file_index=i, fields=fields, *args, **kwargs)
-        except:
+        except Exception:
             print(f"Bad file: index={i}")
             continue
         time_seps[i] = self.mesh.time
@@ -93,7 +93,7 @@ def lagrangian_autocorrelation(self, nsamples: int, fields: Sequence[str], *args
         msg = "Lagrangian autocorrelation requires Lagrangian Particles!"
         if self.mesh is not None:
             msg += "Only mesh was loaded, possibly by mistake. Eulerian autocorrelation uses a mesh!"
-        raise(msg)
+        raise RuntimeError(msg)
 
 
     for i in range(nfiles):
