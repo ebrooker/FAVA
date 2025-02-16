@@ -1,13 +1,9 @@
 """
 FLASH Uniform dataset
 
-Includes a `from_amr` constructor
-
 Has methods to write out all pertinent data for an HDF5 file.
 
-However, this should probably be checked against a FLASH generated Uniform grid model
-
-Functions that write the same way as AMR FLASH models should be moved to a parent class
+However, this should be checked against a FLASH generated Uniform grid model
 
 """
 
@@ -121,7 +117,6 @@ class FlashUniform(FLASH):
             # Initialize the numpy array with float64 buffer
             edata = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
 
-            # edata: NDArray = np.zeros((height, width, depth), dtype=np.int8)
             edata[...] = 0
             edata[self._data[field] == _contour] = 1
 
@@ -137,7 +132,7 @@ class FlashUniform(FLASH):
 
             for i in list(range(1, height - 1))[lb:ub]:
                 for j, k in itertools.product(range(1, width - 1), range(depth_start, depth - 1)):
-                    # for i, j, k in indices[lb:ub]:
+
                     val = self._data[field][i, j, k]
 
                     if val < _contour:
@@ -196,30 +191,8 @@ class FlashUniform(FLASH):
 
                 nfilled: int = 0
 
-                # iterations: int = int(
-                #     len(range(0, height, bdim)) * len(range(0, width, bdim)) * len(range(0, depth, bdim_k))
-                # )
                 lb, ub = mpi.parallel_range(iterations=len(range(0, height, bdim)))
 
-                # shape: tuple[int] = (iterations, 3)
-                # dtype = np.int16()
-                # win: None | MPI.Win = mpi.reallocate(
-                #     id="indices",
-                #     nbytes=dtype.itemsize * np.prod(shape),
-                #     itemsize=dtype.itemsize,
-                # )
-                # buffer: MPI.buffer = win.Shared_query(0)[0]
-
-                # # Initialize the numpy array with float64 buffer
-                # indices = np.ndarray(buffer=buffer, dtype=dtype, shape=shape)
-
-                # if mpi.root:
-                #     indices[...] = list(
-                #         itertools.product(range(0, height, bdim), range(0, width, bdim), range(0, depth, bdim_k))
-                #     )
-
-                # mpi.comm.barrier()
-                # for i, j, k in indices[lb:ub]:
                 for i in list(range(0, height, bdim))[lb:ub]:
                     for j, k in itertools.product(range(0, width, bdim), range(0, depth, bdim_k)):
                         for bx, by, bz in itertools.product(
@@ -328,15 +301,6 @@ class FlashUniform(FLASH):
                 continue
             spectral[key] *= integral_factor
 
-        # k = spectral["k"]
-        # intg = np.zeros_like(k, dtype=np.float64)
-        # intguw = np.zeros_like(intg)
-
-        # dk: NDArray = np.diff(k)
-        # Edk = spectral["total"][1:] * dk
-        # intguw: NDArray = np.cumsum(Edk)
-        # intg: NDArray = np.cumsum((k[1:] ** -1) * Edk)
-
         return spectral
 
     def structure_functions(
@@ -386,17 +350,13 @@ class FlashUniform(FLASH):
 
             pt_coords[...] = 0.0
             vel_comps[...] = 0.0
-            # pt_coords: NDArray = np.empty((num_seps, num_points, self.ndim, 2))
-            # vel_comps: NDArray = np.empty((num_seps, num_points, self.ndim))
 
             pt_rand_1: NDArray = np.empty((num_points, self.ndim))
             pt_rand_2: NDArray = np.empty((num_points, self.ndim))
             lb, ub = mpi.parallel_range(iterations=num_seps)
-            # print("\t", mpi.id, lb, ub, flush=True)
-            # for i, sep in enumerate(separations[lb:ub]):
+            
             for i in range(lb, ub):
 
-                # np.random.seed(mpi.id)
                 sep: float = separations[i]
 
                 pt_rand_1[:, :] = (
@@ -445,17 +405,7 @@ class FlashUniform(FLASH):
                     pt2[:, j] = np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(
                         int
                     )
-                    # pt1[:, j] = np.mod(
-                    #     np.floor((pt_rand_1[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
-                    #     self.nCellsVec[j],
-                    # )
-                    # pt2[:, j] = np.mod(
-                    #     np.floor((pt_rand_2[:, j] - self.domain_bounds[j, 0]) / cell_size[j]).astype(int),
-                    #     self.nCellsVec[j],
-                    # )
 
-                # print(pt1)
-                # print(pt2)
                 for j, velocity in enumerate(vels):
                     vel_comps[i, :, j] = (
                         self.data(velocity)[pt2[:, 0], pt2[:, 1], pt2[:, 2]]
@@ -468,8 +418,6 @@ class FlashUniform(FLASH):
             mpi.comm.barrier()
             sep_vec: NDArray = pt_coords[..., 1] - pt_coords[..., 0]
 
-            # print("sepvec", sep_vec.min(), sep_vec.max(), flush=True)
-            # print("vel_comps", vel_comps.min(), vel_comps.max(), flush=True)
             rhat: NDArray = np.empty_like(sep_vec)
 
             if anistropic:
@@ -490,8 +438,6 @@ class FlashUniform(FLASH):
             trans_comp: NDArray = np.sqrt(np.sum((vel_comps - long_dvel) ** 2, axis=2))
             trans_vsfs: NDArray = np.sum(trans_comp**order, axis=1) / float(num_points)
 
-            # if mpi.root:
-            #     print(order, long_vsfs.min(), long_vsfs.max(), trans_vsfs.min(), trans_vsfs.max(), flush=True)
             vsfs["transverse"][f"{order}"] = np.copy(trans_vsfs)
             vsfs["longitudinal"][f"{order}"] = np.copy(long_vsfs)
             vsfs["separations"] = separations

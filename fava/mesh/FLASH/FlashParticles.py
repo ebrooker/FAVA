@@ -74,10 +74,6 @@ class FlashParticles(Unstructured):
     def _read_scalars(self):
         self._intscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["integer scalars"][()]}
         self._realscalars = {tpl[0].strip().decode("UTF-8"): tpl[1] for tpl in self._open_file["real scalars"][()]}
-        # self._stringscalars = {
-        #     tpl[0].decode("UTF-8").strip(): tpl[1].decode("UTF-8").strip()
-        #     for tpl in self._open_file["string scalars"][()]
-        # }
 
     def _read_particles(self):
         self.localnp = self._open_file["localnp"][()]
