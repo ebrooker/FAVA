@@ -1,6 +1,4 @@
 import signal
-# import sys
-# from pathlib import Path
 from typing import Self
 
 from mpi4py import MPI
