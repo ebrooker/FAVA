@@ -5,7 +5,6 @@ FAVA
 Fluids Advanced Variable Analysis: package for performing advanced analysis calculations on computational fluid dynamics data.
 
 * Free software: MIT license
-* Documentation: https://FAVA.readthedocs.io.
 
 Usage
 -----
