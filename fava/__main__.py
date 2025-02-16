@@ -111,8 +111,7 @@ class Pipeline:
 
         xmin: float = centroid - 16e5
         xmax: float = centroid + 16e5
-        # ymin, ymax = (self.model.mesh.ymin, self.model.mesh.ymax)
-        # zmin, zmax = (self.model.mesh.zmin, self.model.mesh.zmax)
+        
         left: NDArray = self.model.mesh.domain_bounds[:, 0]
         right: NDArray = self.model.mesh.domain_bounds[:, 1]
 
@@ -224,36 +223,6 @@ class Pipeline:
 
         self.checkpoint_data[pkey]["analysis"] = None
 
-        # akey: str = "fractal dimension"
-        # self.checkpoint_data[pkey]["analysis"] = akey
-
-        # if not self.settings[akey].get("skip", False):
-        #     _settings: dict = self.settings[akey].get("settings", {})
-        #     retval: dict = self.model.fractal_dimension(self.flam, **_settings)
-        #     mpi.comm.barrier()
-        #     if mpi.root:
-        #         self.model.save_to_hdf5(data={akey: {"flame progress": retval}}, filename=fn)
-        #     mpi.comm.barrier()
-
-        # akey = "structure functions"
-        # self.checkpoint_data[pkey]["analysis"] = akey
-        # if not self.settings[akey].get("skip", False):
-        #     _settings: dict = self.settings[akey].get("settings", {})
-        #     retval: dict = self.model.structure_functions(**_settings)
-        #     mpi.comm.barrier()
-        #     if mpi.root:
-        #         self.model.save_to_hdf5(data={akey: retval}, filename=fn)
-        #     mpi.comm.barrier()
-
-        # akey = "kinetic energy spectra"
-        # self.checkpoint_data[pkey]["analysis"] = akey
-        # if not self.settings[akey].get("skip", False):
-        #     retval: dict = self.model.kinetic_energy_spectra()
-        #     mpi.comm.barrier()
-        #     if mpi.root:
-        #         self.model.save_to_hdf5(data={akey: retval}, filename=fn)
-        #     mpi.comm.barrier()
-
 
 @timer
 def main() -> None:
@@ -276,7 +245,7 @@ def main() -> None:
                 pipe.checkpoint_data[pkey] = {"index": i + 1}
 
         mpi.comm.barrier()
-        # if not pipe.settings["smooth window trajectory"].get("skip", False):
+
         pipe.smooth_window_trajectory()
 
         mpi.comm.barrier()
