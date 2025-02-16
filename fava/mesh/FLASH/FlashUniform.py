@@ -8,7 +8,6 @@ However, this should be checked against a FLASH generated Uniform grid model
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple, Any, Dict
 from functools import cached_property
 from math import log2
 import logging
@@ -18,8 +17,7 @@ from mpi4py import MPI
 import h5py
 import itertools
 from fava.mesh.FLASH._flash import FLASH
-from fava.mesh.FLASH._util import FIELD_MAPPING, NGUARD, MESH_MDIM
-from fava.util import mpi, HID_T, NP_T
+from fava.util import mpi
 from scipy.stats import binned_statistic
 
 logger: logging.Logger = logging.getLogger(__file__)
@@ -32,8 +30,8 @@ class FlashUniform(FLASH):
         self.filename = filename
 
     @classmethod
-    def is_this_your_mesh(self, filename: str | Path, *args, **kwargs) -> bool:
-        fn_types: Tuple[str, str] = ("hdf5_uniform_",)
+    def is_this_your_mesh(cls, filename: str | Path, *args, **kwargs) -> bool:
+        fn_types: tuple[str, str] = ("hdf5_uniform_",)
         return any(fn in filename for fn in fn_types)
 
     def load(self) -> None:
@@ -88,6 +86,8 @@ class FlashUniform(FLASH):
 
         if isinstance(contours, float):
             _contours: list[float] = [contours]
+        else:
+            raise ValueError("Contours must be either a float or list of floats")
 
         height, width, depth = self.nCellsVec
 
@@ -270,7 +270,7 @@ class FlashUniform(FLASH):
             ffts.append(fft)
         ffts: NDArray = np.array(ffts)
 
-        power: Dict[str, NDArray] = {"total": 0.5 * (np.abs(ffts) ** 2).sum(axis=0)}
+        power: dict[str, NDArray] = {"total": 0.5 * (np.abs(ffts) ** 2).sum(axis=0)}
 
         power["longitudinal"] = np.zeros(k_num, dtype=np.complex128)
         if self.ndim == 1:
